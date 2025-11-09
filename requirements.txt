@@ -1,5 +1,12 @@
-Flask
-requests
-pandas
-openpyxl
-gunicorn
+# requirements.txt – versão definitiva (projeto existente + WhatsApp)
+Flask==2.3.3
+requests==2.31.0
+pandas==2.1.1
+openpyxl==3.1.2      # já existente
+gunicorn==21.2.0
+
+# ---------  novos / WhatsApp  ---------------
+PyJWT>=2.8.0
+httpx>=0.25.0
+cryptography>=41.0.0
+python-dotenv==1.0.0

@@ -16,7 +16,7 @@ from flask import Flask, request, jsonify
 # ------------------------------------------------------------------
 # CONFIGURAÇÕES GLOBAIS
 # ------------------------------------------------------------------
-APP_ID            = os.getenv(\"MERCADO_LIVRE_APP_ID\")
+APP_ID = os.getenv("MERCADO_LIVRE_APP_ID")
 CLIENT_SECRET     = os.getenv(\"MERCADO_LIVRE_CLIENT_SECRET\")
 GOOGLE_API_KEY    = os.getenv(\"GOOGLE_API_KEY\")
 EMAIL_SENDER      = os.getenv(\"EMAIL_SENDER\")

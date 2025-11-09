@@ -33,7 +33,7 @@ GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.
 # CACHE
 # -----------------------------------------------------------
 CACHE_FILE = "cache.json"
-QNA_CACHE: Dict[str, Dict[str, Any]] = {}  # question -> {"answer": ..., "ts": ...}
+from typing import Dict, Any
 
 def load_cache():
     global QNA_CACHE

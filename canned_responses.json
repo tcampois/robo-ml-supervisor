@@ -1,0 +1,147 @@
+[
+  {
+    "name": "PAGAMENTO-Boleto",
+    "keywords": ["paguei boleto", "pagando boleto", "pagar boleto", "comprei boleto"],
+    "response": "Olá! O pagamento via boleto é uma ótima opção! A confirmação pelo banco pode levar até 24 horas úteis para ser processada. Assim que recebermos a confirmação do Mercado Livre, seu pedido será preparado para envio com prioridade. Fique tranquilo(a), estamos de olho para agilizar tudo para você!"
+  },
+  {
+    "name": "NEGOCIACAO-Desconto",
+    "keywords": ["desconto", "preço melhor", "menor valor", "faz por menos"],
+    "response": "Olá! Entendemos perfeitamente a busca por um bom negócio. Nossos preços já são de fábrica e foram calculados para oferecer a melhor relação custo-benefício, considerando a alta qualidade dos materiais e nossa fabricação própria. Você está investindo em um produto feito para durar e com a garantia de quem fabrica!"
+  },
+  {
+    "name": "PRAZO-Fabricacao",
+    "keywords": ["tempo fabricacao", "prazo fabricacao", "fabricacao", "produção"],
+    "response": "Olá! Este produto é especial e preparado com todo o cuidado para você. Por isso, pedimos um prazo de fabricação que está sempre atualizado no próprio anúncio, logo abaixo do preço. Este tempo nos permite garantir a máxima qualidade em cada detalhe. Agradecemos a compreensão!"
+  },
+  {
+    "name": "SEGURANCA-Garantia",
+    "keywords": ["garantia"],
+    "response": "Olá! Sim, com certeza. Confiamos tanto na qualidade de nossos produtos que todos eles possuem garantia contra defeitos de fabricação. O tempo exato de garantia para este item está especificado na seção 'Ficha Técnica' do anúncio. Sua compra é 100% segura!"
+  },
+  {
+    "name": "FISCAL-NotaFiscal",
+    "keywords": ["nota fiscal", "nfe", "danfe", "nf"],
+    "response": "Olá! Sim, com certeza. Todos os nossos produtos são enviados com Nota Fiscal eletrônica (NF-e), emitida automaticamente com os dados (CPF ou CNPJ) cadastrados na sua conta do Mercado Livre. É mais segurança e garantia para sua compra!"
+  },
+  {
+    "name": "DISPONIBILIDADE-Estoque",
+    "keywords": ["tem estoque", "esta estoque", "pronta entrega"],
+    "response": "Olá! Sim, produto a pronta entrega! Se o anúncio está ativo, pode comprar com tranquilidade. Comprando agora, seu pedido é processado e enviado em até 24 horas úteis. Aguardamos sua compra!"
+  },
+  {
+    "name": "FRETE-Gratis",
+    "keywords": ["frete gratis", "envio gratis"],
+    "response": "Olá! O frete é calculado automaticamente pelo Mercado Livre. Para saber se você tem direito ao frete grátis, por favor, insira seu CEP no campo 'Ver mais formas de entrega', logo abaixo do preço. O sistema já mostrará o valor e o prazo exato para sua região. É rápido e fácil!"
+  },
+  {
+    "name": "AGILIDADE-EnvioHoje",
+    "keywords": ["envia hoje", "envio hoje", "imediato"],
+    "response": "Olá! Quer receber seu produto o mais rápido possível? Comprando até as 08h00 em dias úteis, seu pedido é enviado no mesmo dia! Após esse horário, ele segue no próximo dia útil com a mesma prioridade. Agilidade é nosso compromisso!"
+  },
+  {
+    "name": "FRETE-CustoPorCEP",
+    "keywords": ["frete para", "envio para", "valor do frete"],
+    "response": "Olá! Para calcular o frete para o seu CEP, basta inseri-lo no campo 'Ver mais formas de entrega', que fica logo abaixo do preço do produto. O sistema do Mercado Livre mostrará automaticamente as opções de envio, custos e prazos para sua localidade."
+  },
+  {
+    "name": "DETALHE-Medidas",
+    "keywords": ["medida", "tamanho", "comprimento", "diametro", "dimensao", "dimensões"],
+    "response": "Olá! Todas as medidas detalhadas do produto estão na seção 'Ficha Técnica' e também em uma das fotos do anúncio, onde geralmente colocamos um desenho técnico. Por favor, verifique essas áreas para encontrar a informação que precisa."
+  },
+  {
+    "name": "QUALIDADE-Material",
+    "keywords": ["material", "enferruja", "aço", "galvanizado", "resiste"],
+    "response": "Olá! O material de fabricação e o tratamento contra corrosão estão detalhados na 'Ficha Técnica'. Para uso em água salgada, recomendamos sempre lavar o produto com água doce após o uso para maximizar a vida útil. É um produto feito para resistir!"
+  },
+  {
+    "name": "VARIEDADE-Cores",
+    "keywords": ["cor", "cores"],
+    "response": "Olá! As cores disponíveis para este produto podem ser visualizadas e selecionadas diretamente no anúncio, um pouco acima do botão 'Comprar'. Escolha a sua preferida e aproveite!"
+  },
+  {
+    "name": "COMPATIBILIDADE-Barco",
+    "keywords": ["barco borda", "serve para", "meu barco"],
+    "response": "Olá! Nossos produtos são projetados para serem universais. As medidas de abertura e fixação estão na descrição e nas fotos. Recomendamos comparar com as medidas do seu barco para garantir o encaixe perfeito e uma ótima experiência!"
+  },
+  {
+    "name": "SUPORTE-Reposicao",
+    "keywords": ["peça", "so o assento", "reposição", "reparo", "vende separado"],
+    "response": "Olá! Sim, pensamos em tudo! Temos peças de reposição para que seu produto dure ainda mais. Por favor, nos envie uma nova pergunta especificando a peça que precisa e te enviaremos o link do anúncio correto."
+  },
+  {
+    "name": "OPORTUNIDADE-Kits",
+    "keywords": ["kit com", "unidades", "peças", "duas pecas", "2 unidades"],
+    "response": "Olá! Temos kits com diferentes quantidades que podem oferecer um ótimo custo-benefício. Por favor, clique em 'Ver mais anúncios do vendedor' para ver todas as opções. Se não encontrar o que precisa, nos diga a quantidade desejada que verificamos para você!"
+  },
+  {
+    "name": "PADRAO-SemPersonalizacao",
+    "keywords": ["fazer maior", "alterar", "modificar", "personaliza"],
+    "response": "Olá! Agradecemos sua consulta. Para garantir a agilidade na entrega e o melhor preço, nossos produtos seguem um padrão de fabricação e não conseguimos fazer alterações. Temos certeza de que a qualidade do nosso modelo padrão irá te surpreender!"
+  },
+  {
+    "name": "FACILIDADE-Instalacao",
+    "keywords": ["monta", "instala", "como prende", "instalacao"],
+    "response": "Olá! A instalação é bem simples e intuitiva. Demonstramos o passo a passo em uma das fotos e também na descrição do anúncio. Você verá que em poucos minutos seu produto estará pronto para usar!"
+  },
+  {
+    "name": "LOGISTICA-SemRetirada",
+    "keywords": ["retirar", "retirada", "loja física", "buscar pessoalmente"],
+    "response": "Olá! Para sua maior comodidade e segurança, operamos 100% online com envios para todo o Brasil através do Mercado Envios. Assim, você recebe seu produto no conforto da sua casa."
+  },
+  {
+    "name": "AJUDA-PosVenda",
+    "keywords": ["minha compra", "meu pedido", "comprei e"],
+    "response": "Olá! Para qualquer questão sobre um pedido já realizado, por favor, nos envie uma mensagem pelo chat privado da sua compra. Assim, nossa equipe de pós-venda pode acessar seus dados com segurança e te ajudar rapidamente."
+  },
+  {
+    "name": "RASTREIO-Pedido",
+    "keywords": ["rastreio", "rastrear", "código"],
+    "response": "Olá! O código de rastreio e todas as atualizações da entrega são fornecidos automaticamente pelo Mercado Livre. Você pode acompanhar tudo acessando 'Minhas Compras', localizando seu pedido e clicando em 'Acompanhar envio'."
+  },
+  {
+    "name": "RELACIONAMENTO-Saudacao",
+    "keywords": ["ola", "oi", "bom dia", "boa tarde", "boa noite"],
+    "response": "Olá, tudo bem? Agradecemos seu contato. Em que podemos ajudar? Estamos à disposição para tirar qualquer dúvida sobre nossos produtos!"
+  },
+  {
+    "name": "RELACIONAMENTO-Agradecimento",
+    "keywords": ["obrigado", "obrigada", "valeu"],
+    "response": "Nós que agradecemos o seu contato! Se precisar de mais alguma coisa, é só chamar. Tenha um ótimo dia!"
+  },
+  {
+    "name": "ESCLARECIMENTO-Diferenca",
+    "keywords": ["diferença", "qual o melhor", "diferente"],
+    "response": "Olá! Ótima pergunta. A principal diferença entre os modelos está nos detalhes da 'Ficha Técnica' e na 'Descrição'. Recomendamos comparar esses pontos para ver qual deles se encaixa perfeitamente na sua necessidade."
+  },
+  {
+    "name": "MARCA-FabricacaoPropria",
+    "keywords": ["fabricação própria", "vocês que fabricam"],
+    "response": "Olá! Sim, temos muito orgulho em dizer que a maioria dos nossos produtos é de fabricação própria. Isso nos permite controlar cada etapa do processo e garantir a máxima qualidade para você!"
+  },
+  {
+    "name": "VENDA-Acessorios",
+    "keywords": ["acessório", "acompanha"],
+    "response": "Olá! Os itens inclusos em cada anúncio estão sempre listados na 'Descrição Completa'. Se algum acessório for vendido separadamente, geralmente colocamos o link na própria descrição para facilitar sua compra."
+  },
+  {
+    "name": "CUIDADOS-AguaSalgada",
+    "keywords": ["água salgada", "mar", "praia"],
+    "response": "Olá! Nossos produtos de aço são muito resistentes. Para uso em água salgada, a nossa dica de ouro é sempre lavar a peça com água doce abundante após o uso. Esse cuidado simples aumenta muito a vida útil do produto e o mantém como novo!"
+  },
+  {
+    "name": "PAGAMENTO-Confirmacao",
+    "keywords": ["pagamento confirmado", "ja confirmou"],
+    "response": "Olá! A confirmação de pagamento é feita pelo sistema do Mercado Pago. Assim que ela acontece, recebemos a liberação do seu pedido e já iniciamos a preparação para o envio. Você pode acompanhar o status diretamente na sua área de 'Compras'."
+  },
+  {
+    "name": "PRESENTE-Embalagem",
+    "keywords": ["presente", "embalagem para presente"],
+    "response": "Olá! Que ótima ideia dar um de nossos produtos de presente! Nossas embalagens são projetadas para proteger o item durante o transporte. No momento, não oferecemos um serviço de embalagem especial para presente, mas o produto chegará seguro e em perfeito estado."
+  },
+  {
+    "name": "SEGURANCA-CompraGarantida",
+    "keywords": ["é seguro", "confiável"],
+    "response": "Olá! Sim, sua compra é 100% segura. Todas as transações são feitas através do Mercado Pago, e você conta com o programa de 'Compra Garantida' do Mercado Livre, que protege seu dinheiro até que você receba o produto e esteja satisfeito."
+  }
+]

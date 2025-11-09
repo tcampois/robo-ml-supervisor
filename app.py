@@ -212,3 +212,39 @@ def health():
 if __name__ == "__main__":
     load_cache()
     app.run(host="0.0.0.0", port=PORT)
+# ---- rota já existe (não toca) ----
+@app.route('/verificar', methods=['POST'])
+def verificar():
+    ...   # código que já está funcionando
+
+# ---- acrescenta esta nova rota ----
+@app.route('/ml-webhook', methods=['POST'])
+def ml_webhook():
+    from flask import request, jsonify
+    import os, json, requests, datetime
+
+    payload = request.get_json(force=True)
+    resource = payload.get("resource", {})
+
+    # monta mensagem simples
+    msg = (
+        f"🛥️ *Nova venda no Mercado Livre!*\n"
+        f"Pedido: {resource.get('id')}\n"
+        f"Comprador: {resource.get('buyer', {}).get('nickname')}\n"
+        f"Total: R\$ {resource.get('total_amount')}"
+    )
+
+    # envia via WhatsApp Cloud API
+    WA_TOKEN = os.getenv("WA_TOKEN")
+    WA_NUMBER = os.getenv("WA_NUMBER")
+    url = f"https://graph.facebook.com/v18.0/{WA_NUMBER}/messages"
+    body = {
+        "messaging_product": "whatsapp",
+        "to": os.getenv("DEST_WA"),   # pé-de-mesmo telefone que recebe
+        "type": "text",
+        "text": {"body": msg}
+    }
+    headers = {"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"}
+    requests.post(url, json=body, headers=headers)
+
+    return jsonify({"status": "ok"}), 200

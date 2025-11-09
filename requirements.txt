@@ -1,1 +1,5 @@
-Flask requests pandas openpyxl gunicorn
+Flask
+requests
+pandas
+openpyxl
+gunicorn

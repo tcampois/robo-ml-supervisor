@@ -1,12 +1,5 @@
---prefer-binary
-ultralytics==8.3.40
-lanms-pro==1.0.2
-Flask==2.3.3
-requests==2.31.0
-pandas==2.1.1
-openpyxl==3.1.2
-gunicorn==21.2.0
-PyJWT>=2.8.0
-httpx>=0.25.0
-cryptography>=41.0.0
-python-dotenv==1.0.0
+Flask
+gunicorn
+pandas
+openpyxl
+requests

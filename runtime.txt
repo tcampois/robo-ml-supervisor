@@ -1,0 +1,3 @@
+ls -la runtime.txt          # deve existir
+git log -1 --oneline          # deve mostrar seu último commit
+git push origin main          # garante que subiu

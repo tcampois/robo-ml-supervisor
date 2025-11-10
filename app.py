@@ -1,181 +1,250 @@
-# CÓDIGO MESTRE v13.0 (Sua Lógica + Minha Blindagem de Diagnóstico)
-from flask import Flask, request, jsonify
 import os
-import requests
 import json
 import time
-import pandas as pd
-from datetime import datetime
-import smtplib, ssl
+import requests
+import smtplib
+import ssl
+from datetime import datetime, timedelta
+from typing import Dict, Optional, List
+from dataclasses import dataclass, asdict
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# --- CONFIGURAÇÃO ---
-APP_ID = os.environ.get('MERCADO_LIVRE_APP_ID')
-CLIENT_SECRET = os.environ.get('MERCADO_LIVRE_CLIENT_SECRET')
-GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
-CONFIDENCE_THRESHOLD = 8
-YOUR_STORE_NAME = "Riomar Equipesca"
-EMAIL_SENDER = os.environ.get('EMAIL_SENDER')
-EMAIL_RECEIVER = os.environ.get('EMAIL_RECEIVER')
-EMAIL_APP_PASSWORD = os.environ.get('EMAIL_APP_PASSWORD')
+from flask import Flask, request, jsonify
 
-# Sua nova lista de palavras-chave para o Plano B
-GENERIC_DESCRIPTION_KEYWORDS = [
-    'vantagem', 'vantagens', 'benefício', 'benefícios', 'característica', 
-    'características', 'descrição', 'detalhes', 'qualidades', 'informações'
-]
-
-# --- CARREGAMENTO DOS BANCOS DE DADOS ---
-KNOWLEDGE_DF = None; CANNED_RESPONSES = []
-try:
-    # Usando a sua correção do nome da coluna. Perfeito.
-    KNOWLEDGE_DF = pd.read_excel('catalogo_produtos.xlsx', dtype={'Código do anúncio': str})
-    print(f">>> Banco de Dados Excel v13.0 carregado. {len(KNOWLEDGE_DF)} produtos.")
-except Exception as e:
-    print(f"### ERRO CRÍTICO NO EXCEL: {e} ###")
-try:
-    with open('canned_responses.json', 'r', encoding='utf-8') as f:
-        CANNED_RESPONSES = json.load(f)
-        print(f">>> Livro de Regras v13.0 carregado. {len(CANNED_RESPONSES)} regras.")
-except Exception as e:
-    print(f"### ERRO CRÍTICO NO JSON: {e} ###")
-
-PROCESSED_QUESTIONS = {}; MEMORY_DURATION_SECONDS = 300
+# -----------------------------------------------------------
+# CONFIGURAÇÕES
+# -----------------------------------------------------------
 app = Flask(__name__)
+PORT = int(os.environ.get("PORT", 5000))
+STORE_NAME = os.environ.get("STORE_NAME", "Loja")
+SHEET_URL = os.environ.get("SHEET_URL", "")
+CACHE_TTL_MINUTES = 5
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "loja@example.com")
+EMAIL_TO = os.environ.get("EMAIL_TO", "suporte@example.com")
+SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.example.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASS = os.environ.get("SMTP_PASS", "")
+GEMINI_KEY = os.environ.get("GEMINI_KEY", "")
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-exp:generateContent?key={GEMINI_KEY}"
 
-# --- FUNÇÕES DE LÓGICA (Com Blindagem Adicional) ---
+# -----------------------------------------------------------
+# CACHE
+# -----------------------------------------------------------
+CACHE_FILE = "cache.json"
+from typing import Dict, Any
 
-def send_notification_email(question_text, answer_text):
-    if not all([EMAIL_SENDER, EMAIL_RECEIVER, EMAIL_APP_PASSWORD]): print(">>> AVISO: Credenciais de e-mail não configuradas."); return
-    message = MIMEMultipart("alternative"); message["Subject"] = f"Robô ML Respondeu: \"{question_text[:30]}...\""; message["From"] = EMAIL_SENDER; message["To"] = EMAIL_RECEIVER
-    html = f"""<html><body><p><strong>Uma resposta automática foi enviada.</strong></p><hr><p><strong>Pergunta:</strong></p><p style="padding: 10px; border-left: 3px solid #ccc;">{question_text}</p><p><strong>Resposta:</strong></p><p style="padding: 10px; border-left: 3px solid #007bff;">{answer_text.replace(os.linesep, '<br>')}</p></body></html>"""; message.attach(MIMEText(html, "html"))
-    context = ssl.create_default_context()
+def load_cache():
+    global QNA_CACHE
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                QNA_CACHE = json.load(f)
+        except Exception:
+            QNA_CACHE = {}
+
+def save_cache():
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(QNA_CACHE, f, ensure_ascii=False, indent=2)
+
+# -----------------------------------------------------------
+# UTILS
+# -----------------------------------------------------------
+def log(msg: str):
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+
+def send_email(subj: str, body: str):
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server: server.login(EMAIL_SENDER, EMAIL_APP_PASSWORD); server.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, message.as_string()); print(">>> NOTIFICAÇÃO POR E-MAIL ENVIADA!")
-    except Exception as e: print(f"### FALHA NO ENVIO DE E-MAIL: {e} ###")
+        msg = MIMEMultipart()
+        msg["From"] = EMAIL_FROM
+        msg["To"] = EMAIL_TO
+        msg["Subject"] = subj
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        context = ssl.create_default_context()
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as s:
+            s.starttls(context=context)
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(EMAIL_FROM, EMAIL_TO, msg.as_string())
+        log("Email enviado")
+    except Exception as e:
+        log(f"Falha ao enviar email: {e}")
 
-def check_for_canned_response(question_text):
-    normalized_question = question_text.lower()
-    for rule in CANNED_RESPONSES:
-        for keyword in rule['keywords']:
-            if keyword.lower() in normalized_question: print(f">>> PLANO A ACIONADO! Keyword: '{keyword}', Regra: '{rule['name']}'."); return rule['response']
-    return None
-
-def check_for_generic_description_query(question_text):
-    normalized_question = question_text.lower()
-    for keyword in GENERIC_DESCRIPTION_KEYWORDS:
-        if keyword in normalized_question: print(f">>> PLANO B ACIONADO! Keyword genérica: '{keyword}'."); return True
-    return False
-
-def get_time_based_greeting():
-    current_hour = datetime.utcnow().hour - 3;
-    if current_hour < 0: current_hour += 24
-    if 5 <= current_hour < 12: return "Olá! Bom dia. "
-    elif 12 <= current_hour < 18: return "Olá! Boa tarde. "
-    else: return "Olá! Boa noite. "
-
-def extract_json_from_ia_response(text):
-    try: json_start = text.find('{'); json_end = text.rfind('}') + 1; return json.loads(text[json_start:json_end]) if json_start != -1 and json_end != -1 else None
-    except Exception: return None
-
-def get_reply_logic(question_text, product_data):
-    print(">>> CÉREBRO DE IA (PLANO C) ACIONADO...")
-    description_text = product_data.pop('Descrição', 'Nenhuma descrição textual fornecida.') # Usando a coluna 'Descrição'
-    structured_data_text = "\n".join([f"{key}: {value}" for key, value in product_data.items()])
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"; headers = {'Content-Type': 'application/json'};
-    prompt = f"""# MISSÃO\nVocê é um Perito Verificador. Sua missão é responder à pergunta e AVALIAR se a resposta foi encontrada. Sua resposta DEVE SER um objeto JSON válido.\n# FONTES DE DADOS\n---\n# DADOS ESTRUTURADOS: {structured_data_text}\n# DESCRIÇÃO TEXTUAL: {description_text}\n---\n# PERGUNTA DO CLIENTE\n"{question_text}"\n# INSTRUÇÕES\n1. Leia a pergunta e as fontes de dados CUIDADOSAMENTE.\n2. Se encontrar a resposta EXATA, defina "status" como "ANSWER_FOUND".\n3. Se NÃO encontrar, defina "status" como "INFORMATION_NOT_FOUND".\n4. Avalie sua confiança (0 a 10) no "confidence_score".\n5. Formate a saída EXCLUSIVAMENTE como JSON.\n# SAÍDA JSON OBRIGATÓRIA:\n"""; payload = {"contents": [{"parts": [{"text": prompt}]}]};
-    try: response = requests.post(url, headers=headers, data=json.dumps(payload)); response.raise_for_status(); ia_response_string = response.json()['candidates'][0]['content']['parts'][0]['text']; print(f">>> IA RETORNOU: {ia_response_string}"); return extract_json_from_ia_response(ia_response_string)
-    except Exception as e: print(f"### ERRO NA CHAMADA À IA: {e} ###"); return None
-
-def get_product_context_from_dataframe(item_id, dataframe):
-    if dataframe is None: print("### ERRO: DataFrame de conhecimento não está carregado."); return None
+# -----------------------------------------------------------
+# GEMINI
+# -----------------------------------------------------------
+def ask_gemini(prompt: str) -> str:
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 300}
+    }
     try:
-        product_row = dataframe[dataframe['Código do anúncio'] == item_id]
-        if not product_row.empty: return product_row.iloc[0].dropna().to_dict()
+        r = requests.post(GEMINI_URL, json=payload, timeout=15)
+        r.raise_for_status()
+        cand = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return cand.strip()
+    except Exception as e:
+        log(f"Gemini falhou: {e}")
+        return ""
+
+# -----------------------------------------------------------
+# SHEET
+# -----------------------------------------------------------
+def load_excel():
+    # Simula 1a linha como cabeçalho: mlb, titulo, preco, disponivel, mensagem
+    if SHEET_URL.endswith(".csv"):
+        import pandas as pd
+        df = pd.read_csv(SHEET_URL)
+    elif SHEET_URL.endswith(".xlsx"):
+        import pandas as pd
+        df = pd.read_excel(SHEET_URL)
+    else:
+        return []
+    df.columns = [c.lower() for c in df.columns]
+    return df
+
+# -----------------------------------------------------------
+# RESPOSTAS
+# -----------------------------------------------------------
+def personalized_answer(question: str, mlb: str, row: Dict[str, str]) -> str:
+    prompt = (
+        f"Você é atendente de e-commerce. "
+        f"O cliente perguntou: '{question}'\n"
+        f"Dados do anúncio MLB {mlb}: titulo='{row.get('titulo','')}', "
+        f"preço='{row.get('preco','')}', disponível='{row.get('disponivel','')}'. "
+        f"Crie uma resposta cordial, curta e objetiva."
+    )
+    gem = ask_gemini(prompt)
+    return gem or row.get("mensagem", "Não conseguimos localizar a resposta.")
+
+def reply_uncle_cell(mlb: str, question: str) -> str:
+    df = load_excel()
+    if df.empty:
         return None
-    except KeyError: print(f"### ERRO DE LÓGICA: A coluna 'Código do anúncio' não foi encontrada no Excel."); return None
+    row = df[df["mlb"] == mlb]
+    if row.empty:
+        return None
+    data = row.iloc[0].to_dict()
+    answer = personalized_answer(question, mlb, data)
+    return answer
 
-# --- FUNÇÕES DE API (COM BLINDAGEM DE DIAGNÓSTICO) ---
-def get_access_token():
-    url = "https://api.mercadolibre.com/oauth/token"; payload = {'grant_type': 'client_credentials', 'client_id': APP_ID, 'client_secret': CLIENT_SECRET};
-    try: response = requests.post(url, headers={'accept': 'application/json', 'content-type': 'application/x-www-form-urlencoded'}, data=payload); response.raise_for_status(); return response.json().get('access_token')
-    except requests.exceptions.RequestException as e: print(f"### ERRO DE API (get_access_token): {e} ###"); return None
-
-def get_question_details(resource_id, token):
-    url = f"https://api.mercadolibre.com{resource_id}";
-    try: response = requests.get(url, headers={'Authorization': f'Bearer {token}'}); response.raise_for_status(); return response.json()
-    except requests.exceptions.RequestException as e: print(f"### ERRO DE API (get_question_details): {e} ###"); return None
-
-def post_answer(question_id, answer_text, token):
-    url = f"https://api.mercadolibre.com/answers"; payload = json.dumps({"question_id": question_id, "text": answer_text});
-    try: response = requests.post(url, headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}, data=payload); response.raise_for_status(); print(f"+++ RESPOSTA ENVIADA COM SUCESSO! +++"); return True
-    except requests.exceptions.RequestException as e: print(f"### ERRO DE API (post_answer): {e.response.text} ###"); return False
-
-# ==============================================================================
-# ==============================================================================
-@app.route('/notifications', methods=['POST'])
+# -----------------------------------------------------------
+# WEBHOOK
+# -----------------------------------------------------------
+@app.route("/webhook", methods=["POST"])
 def handle_notification():
-    global PROCESSED_QUESTIONS; notification_data = request.get_json(); print("\n" + "="*60); current_time = time.time(); PROCESSED_QUESTIONS = {qid: t for qid, t in PROCESSED_QUESTIONS.items() if current_time - t < MEMORY_DURATION_SECONDS}
-    if notification_data.get('topic') == 'questions':
-        resource_id = notification_data.get('resource');
-        if not resource_id: return jsonify({"status": "ignored_no_resource"}), 200
-        
-        question_id_from_resource = resource_id.split('/')[-1]
-        if question_id_from_resource in PROCESSED_QUESTIONS: print(f"--- NOTIFICAÇÃO DUPLICADA... IGNORANDO. ---"); return jsonify({"status": "ignored_duplicate"}), 200
-        
-        PROCESSED_QUESTIONS[question_id_from_resource] = current_time; print(f"--- INICIANDO FLUXO DE RESPOSTA PARA: {resource_id} ---")
-        
-        access_token = get_access_token()
-        if not access_token:
-            print("### FALHA CRÍTICA: Não foi possível obter o Access Token. Verifique as credenciais MERCADO_LIVRE_APP_ID e MERCADO_LIVRE_CLIENT_SECRET nas Variáveis de Ambiente da Render."); return jsonify({"status": "error_token"}), 200
+    data = request.get_json(force=True)
+    if not data:
+        log("Payload vazio")
+        return jsonify({"error": "no payload"}), 400
 
-        question_details = get_question_details(resource_id, access_token)
-        if not question_details or question_details.get('status') != 'UNANSWERED':
-            print("### AVISO: Não foi possível obter detalhes ou a pergunta já foi respondida/deletada. Encerrando fluxo."); return jsonify({"status": "error_question_details"}), 200
+    topic = data.get("topic", "")
+    resource = data.get("resource", "")
+    if "orders" not in topic:
+        return jsonify({"status": "ignored"}), 200
 
-        question_text = question_details.get('text', ''); item_id = question_details.get('item_id')
-        if not item_id: print(f"--- ERRO: A notificação {resource_id} não contém um 'item_id'."); return jsonify({"status": "error_no_item_id"}), 200
-        
-        print(f"TEXTO DA PERGUNTA: '{question_text}' | NO PRODUTO: {item_id}")
+    # extrai número do pedido
+    order_id = resource.split("/")[-1]
+    log(f"Pedido {order_id}")
 
-        # --- FLUXO 1: RESPOSTA PRONTA (PLANO A) ---
-        canned_answer = check_for_canned_response(question_text)
-        if canned_answer:
-            if post_answer(question_details.get('id'), canned_answer, access_token): send_notification_email(question_text, canned_answer)
-            return jsonify({"status": "success_canned"}), 200
+    # obtém MLB e pergunta da API do Mercado Livre
+    try:
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        r = requests.get(f"https://api.mercadolibre.com{resource}", headers=headers)
+        r.raise_for_status()
+        order = r.json()
+    except Exception as e:
+        log(f"Erro ao buscar pedido: {e}")
+        return jsonify({"error": "ml-api"}), 502
 
-        product_data_dict = get_product_context_from_dataframe(item_id, KNOWLEDGE_DF)
-        if not product_data_dict:
-            print(f">>> FALHA: Produto {item_id} não encontrado no banco de dados Excel. Encerrando fluxo."); return jsonify({"status": "error_product_not_found"}), 200
+    # encontra MLB e mensagem do comprador
+    mlb = None
+    question = ""
+    for item in order.get("order_items", []):
+        mlb = item.get("item", {}).get("id")
+        break
+    for msg in order.get("messages", []):
+        if msg.get("from", {}).get("role") == "buyer":
+            question = msg.get("text", "")
+            break
+    if not mlb or not question:
+        return jsonify({"status": "no question/mlb"}), 200
 
-        # --- FLUXO 1.5: PERGUNTAS GENÉRICAS SOBRE DESCRIÇÃO (PLANO B) ---
-        if check_for_generic_description_query(question_text):
-            if 'Descrição' in product_data_dict:
-                description = product_data_dict['Descrição']; greeting = get_time_based_greeting(); closing = f"\n\nAguardamos sua compra!\nEquipe {YOUR_STORE_NAME}";
-                final_answer_text = f"{greeting}Claro! Seguem os detalhes do produto: \n\n{description}{closing}"
-                if post_answer(question_details.get('id'), final_answer_text, access_token): send_notification_email(question_text, final_answer_text)
-                return jsonify({"status": "success_description_fallback"}), 200
-            else: print(f">>> PLANO B FALHOU: Pergunta genérica, mas produto {item_id} não tem coluna 'Descrição' no Excel.")
+    # 1) consulta cache
+    cache_key = f"{mlb}:{question}"
+    now = datetime.utcnow()
+    cached = QNA_CACHE.get(cache_key)
+    if cached:
+        if now.timestamp() - cached["ts"] < CACHE_TTL_MINUTES * 60:
+            log("Respondeu via cache")
+            return jsonify({"answer": cached["answer"], "source": "cache"}), 200
+        else:
+            del QNA_CACHE[cache_key]
 
-        # --- FLUXO 2: RESPOSTA DA IA (PLANO C) ---
-        print(">>> Nenhum plano anterior funcionou. Acionando fluxo de IA (Plano C)...")
-        ia_response_data = get_reply_logic(question_text, product_data_dict)
-        if ia_response_data and isinstance(ia_response_data, dict):
-            status = ia_response_data.get('status'); confidence = ia_response_data.get('confidence_score', 0); core_answer = ia_response_data.get('answer_text')
-            if status == "ANSWER_FOUND" and confidence >= CONFIDENCE_THRESHOLD:
-                greeting = get_time_based_greeting(); closing = f"\n\nAguardamos sua compra!\nEquipe {YOUR_STORE_NAME}"; final_answer_text = f"{greeting}{core_answer}{closing}"
-                print(f">>> DISCERNIMENTO (Status: {status}, Confiança: {confidence}/{CONFIDENCE_THRESHOLD}). Enviando resposta da IA.")
-                if post_answer(question_details.get('id'), final_answer_text, access_token): send_notification_email(question_text, final_answer_text)
-            else: print(f">>> DISCERNIMENTO DA IA (Status: {status}, Confiança: {confidence}). Nenhuma ação será tomada.")
-        else: print(">>> FLUXO DA IA NÃO RETORNOU DADOS VÁLIDOS. Nenhuma ação será tomada.")
+    # 2) procura no excel
+    answer = reply_uncle_cell(mlb, question)
+    if not answer:
+        # 3) email
+        body = f"MLB {mlb} não localizado.\nPergunta: {question}\nPedido: {order_id}"
+        send_email("Resposta não encontrada", body)
+        return jsonify({"status": "not found, email sent"}), 200
 
-    return jsonify({"status": "success"}), 200
+    # guarda cache
+    QNA_CACHE[cache_key] = {"answer": answer, "ts": now.timestamp()}
+    save_cache()
+    log("Respondeu via Excel + Gemini")
+    return jsonify({"answer": answer, "source": "sheet+gemini"}), 200
 
-@app.route('/', methods=['GET'])
-def health_check():
-    return jsonify({"status": "running", "service": f"Mercado Livre IA Responder v13.0 - Supervisor ({YOUR_STORE_NAME})"}), 200
+# -----------------------------------------------------------
+# HEALTH
+# -----------------------------------------------------------
+@app.route("/", methods=["GET"])
+def health():
+    return jsonify({
+        "status": "running",
+        "version": "v16.0",
+        "store": STORE_NAME
+    }), 200
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000)) # Render usa a variável PORT
-    app.run(host='0.0.0.0', port=port)
+# -----------------------------------------------------------
+# STARTUP
+# -----------------------------------------------------------
+if __name__ == "__main__":
+    load_cache()
+    app.run(host="0.0.0.0", port=PORT)
+# ---- rota já existe (não toca) ----
+@app.route('/verificar', methods=['POST'])
+def verificar():
+    ...   # código que já está funcionando
+
+# ---- acrescenta esta nova rota ----
+@app.route('/ml-webhook', methods=['POST'])
+def ml_webhook():
+    from flask import request, jsonify
+    import os, json, requests, datetime
+
+    payload = request.get_json(force=True)
+    resource = payload.get("resource", {})
+
+    # monta mensagem simples
+    msg = (
+        f"🛥️ *Nova venda no Mercado Livre!*\n"
+        f"Pedido: {resource.get('id')}\n"
+        f"Comprador: {resource.get('buyer', {}).get('nickname')}\n"
+        f"Total: R\$ {resource.get('total_amount')}"
+    )
+
+    # envia via WhatsApp Cloud API
+    WA_TOKEN = os.getenv("WA_TOKEN")
+    WA_NUMBER = os.getenv("WA_NUMBER")
+    url = f"https://graph.facebook.com/v18.0/{WA_NUMBER}/messages"
+    body = {
+        "messaging_product": "whatsapp",
+        "to": os.getenv("DEST_WA"),   # pé-de-mesmo telefone que recebe
+        "type": "text",
+        "text": {"body": msg}
+    }
+    headers = {"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"}
+    requests.post(url, json=body, headers=headers)
+
+    return jsonify({"status": "ok"}), 200

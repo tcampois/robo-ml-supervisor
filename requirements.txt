@@ -1,5 +1,4 @@
 --prefer-binary
-python-3.11.10
 ultralytics==8.3.40
 lanms-pro==1.0.2
 Flask==2.3.3

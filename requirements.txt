@@ -1,5 +1,7 @@
-Flask
-gunicorn
-pandas
-openpyxl
-requests
+flask 
+gunicorn 
+pandas 
+openpyxl 
+requests 
+schedule 
+pyngrok

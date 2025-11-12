@@ -1,15 +1,14 @@
+# Versão 2.5 - Precisão Absoluta
 import requests
 import time
 import os
 import json
 import schedule
 from flask import Flask, request
-from pyngrok import ngrok
 import threading
 from datetime import datetime, timezone, timedelta
 
 # --- CONFIGURAÇÕES GLOBAIS ---
-# As chaves agora são lidas do ambiente, não estão mais no código!
 MEU_CLIENT_ID = os.environ.get('MEU_CLIENT_ID')
 MEU_CLIENT_SECRET = os.environ.get('MEU_CLIENT_SECRET')
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
@@ -110,7 +109,7 @@ class MultiMeliManager:
     def __init__(self, accounts_config: dict):
         self.managers = {}
         for seller_id, config in accounts_config.items():
-            if config.get('refresh_token'): # Só adiciona se o token existir
+            if config.get('refresh_token'):
                 self.managers[str(seller_id)] = MeliManager(
                     client_id=config['client_id'],
                     client_secret=config['client_secret'],
@@ -179,12 +178,11 @@ def handle_ml_notification():
                     print(f"   - Venda antiga (anterior à inicialização) ignorada. ID: {order_id}")
                     return "OK", 200
                 
-                print("   - Venda nova e única. Processando com precisão contábil...")
+                print("   - Venda nova e única. Processando com precisão absoluta...")
 
                 total_amount = order_data.get('total_amount', 0)
                 shipping_cost = 0.0
                 mercadolibre_fee = 0.0
-                coupon_amount = 0.0
 
                 shipping_id = order_data.get('shipping', {}).get('id')
                 if shipping_id:
@@ -195,15 +193,14 @@ def handle_ml_notification():
                         for sender in costs_data.get('senders', []):
                             if sender.get('user_id') == seller_id:
                                 shipping_cost += sender.get('cost', 0)
-                        for discount in costs_data.get('receiver', {}).get('discounts', []):
-                            coupon_amount += discount.get('promoted_amount', 0)
 
                 for item in order_data.get('order_items', []):
                     mercadolibre_fee += item.get('sale_fee', 0)
 
                 imposto_valor = total_amount * 0.0715
                 
-                valor_liquido = total_amount - mercadolibre_fee - shipping_cost - imposto_valor + coupon_amount
+                # CÁLCULO CORRIGIDO: O "bônus" foi removido.
+                valor_liquido = total_amount - mercadolibre_fee - shipping_cost - imposto_valor
                 
                 ledger.record_sale(seller_id, total_amount, valor_liquido)
 
@@ -219,6 +216,7 @@ def handle_ml_notification():
                 logistic_type = shipping_info.get('logistic_type')
                 shipping_mode = "Mercado Envios (FULL)" if logistic_type == 'fulfillment' else "Mercado Envios (Empresa)"
 
+                # MENSAGEM CORRIGIDA: A linha "Bônus/Crédito" foi removida.
                 message = (
                     f"💰 <b>NOVA VENDA APROVADA</b> 💰\n\n"
                     f"🏪 <b>Vendedor:</b> {seller_emoji} <b>{seller_nickname}</b>\n"
@@ -233,8 +231,6 @@ def handle_ml_notification():
                 )
                 if shipping_cost > 0:
                     message += f"🚛 <b>Custo de Envio:</b> -R$ {shipping_cost:.2f}\n"
-                if coupon_amount > 0:
-                    message += f"🎉 <b>Bônus/Crédito:</b> +R$ {coupon_amount:.2f}\n"
                 
                 message += (
                     f"📉 <b>Imposto (7,15%):</b> -R$ {imposto_valor:.2f}\n"
@@ -311,16 +307,13 @@ def run_scheduler():
         time.sleep(1)
 
 def run_app():
-    # A porta é fornecida pela Render através da variável de ambiente PORT
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 10000))
     app.run(port=port, host='0.0.0.0')
 
 if __name__ == "__main__":
-    # Validação inicial das variáveis de ambiente
     if not all([MEU_CLIENT_ID, MEU_CLIENT_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_IDS]):
         print("!!! ERRO CRÍTICO: Variáveis de ambiente essenciais não foram configuradas.")
-        print("!!! Por favor, configure MEU_CLIENT_ID, MEU_CLIENT_SECRET, TELEGRAM_BOT_TOKEN, e TELEGRAM_CHAT_IDS.")
-        exit(1) # Impede a execução
+        exit(1)
 
     ledger = DailyLedger(LEDGER_FILE)
     multi_manager = MultiMeliManager(ACCOUNTS_CONFIG)
@@ -331,7 +324,7 @@ if __name__ == "__main__":
     scheduler_thread.start()
 
     print("======================================================================")
-    print("  Almirante Estratégico ATIVADO! (v2.4 - Segurança Reforçada)")
+    print("  Almirante Estratégico ATIVADO! (v2.5 - Precisão Absoluta)")
     print(f"  Linha do tempo definida. Ignorando vendas anteriores a: {CUTOFF_DATE.strftime('%d/%m/%Y %H:%M:%S')}")
     print("  Motor de relatórios diários e mensais engajado.")
     print("  Servidor web iniciando para receber notificações...")

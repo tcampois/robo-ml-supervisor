@@ -1,4 +1,4 @@
-# Versão 2.5 - Precisão Absoluta
+# Versão 2.6 - Caixa Preta (Sonda de Diagnóstico)
 import requests
 import time
 import os
@@ -7,6 +7,7 @@ import schedule
 from flask import Flask, request
 import threading
 from datetime import datetime, timezone, timedelta
+import traceback
 
 # --- CONFIGURAÇÕES GLOBAIS ---
 MEU_CLIENT_ID = os.environ.get('MEU_CLIENT_ID')
@@ -14,6 +15,9 @@ MEU_CLIENT_SECRET = os.environ.get('MEU_CLIENT_SECRET')
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_IDS_STR = os.environ.get('TELEGRAM_CHAT_IDS', '')
 TELEGRAM_CHAT_IDS = TELEGRAM_CHAT_IDS_STR.split(',') if TELEGRAM_CHAT_IDS_STR else []
+
+# ID de DEBUG: Seu ID pessoal, para onde os relatórios de erro serão enviados.
+DEBUG_CHAT_ID = '8411108712'
 
 ACCOUNTS_CONFIG = {
     323091477: {"client_id": MEU_CLIENT_ID, "client_secret": MEU_CLIENT_SECRET, "refresh_token": os.environ.get('REFRESH_TOKEN_323091477')},
@@ -131,11 +135,13 @@ class TelegramNotifier:
             url = f"{self.API_URL}{self.bot_token}/sendMessage"
             payload = {'chat_id': chat_id, 'text': text, 'parse_mode': 'HTML'}
             try:
-                response = requests.post(url, json=payload)
+                response = requests.post(url, json=payload, timeout=10)
                 response.raise_for_status()
                 print(f"  ✅ Mensagem enviada com sucesso para o ID: {chat_id}")
             except requests.exceptions.RequestException as e:
                 print(f"  !!! FALHA ao enviar para o ID {chat_id}: {e}")
+                # Re-lança a exceção para ser capturada pela sonda de diagnóstico
+                raise
 
 app = Flask(__name__)
 
@@ -146,18 +152,22 @@ def handle_ml_notification():
     if not seller_id: return "OK (sem user_id)", 200
     manager = multi_manager.get_manager_for_seller(seller_id)
     if not manager: return "OK (vendedor não gerenciado)", 200
-    topic = notification_data.get('topic')
-    if topic == 'payments':
-        seller_nickname_log = SELLER_NICKNAMES.get(seller_id, f"ID {seller_id}")
-        print(f"\n🔔 Notificação de PAGAMENTO recebida para: {seller_nickname_log}")
-        resource_path = notification_data.get('resource')
-        try:
+    
+    order_id = "N/A"
+    try:
+        topic = notification_data.get('topic')
+        if topic == 'payments':
+            seller_nickname_log = SELLER_NICKNAMES.get(seller_id, f"ID {seller_id}")
+            print(f"\n🔔 Notificação de PAGAMENTO recebida para: {seller_nickname_log}")
+            resource_path = notification_data.get('resource')
+            
             full_resource_url = f"{MeliManager.API_URL}{resource_path}"
             token = manager.get_access_token()
             headers = {'Authorization': f'Bearer {token}'}
             payment_response = requests.get(full_resource_url, headers=headers)
             payment_response.raise_for_status()
             payment_data = payment_response.json()
+
             if payment_data.get('status') == 'approved' and payment_data.get('order_id'):
                 order_id = payment_data.get('order_id')
                 with PROCESSED_IDS_LOCK:
@@ -198,8 +208,6 @@ def handle_ml_notification():
                     mercadolibre_fee += item.get('sale_fee', 0)
 
                 imposto_valor = total_amount * 0.0715
-                
-                # CÁLCULO CORRIGIDO: O "bônus" foi removido.
                 valor_liquido = total_amount - mercadolibre_fee - shipping_cost - imposto_valor
                 
                 ledger.record_sale(seller_id, total_amount, valor_liquido)
@@ -216,7 +224,6 @@ def handle_ml_notification():
                 logistic_type = shipping_info.get('logistic_type')
                 shipping_mode = "Mercado Envios (FULL)" if logistic_type == 'fulfillment' else "Mercado Envios (Empresa)"
 
-                # MENSAGEM CORRIGIDA: A linha "Bônus/Crédito" foi removida.
                 message = (
                     f"💰 <b>NOVA VENDA APROVADA</b> 💰\n\n"
                     f"🏪 <b>Vendedor:</b> {seller_emoji} <b>{seller_nickname}</b>\n"
@@ -237,9 +244,33 @@ def handle_ml_notification():
                     f"✅ <b>Valor Líquido Final:</b> R$ {valor_liquido:.2f}"
                 )
                 
+                # SONDA DE DIAGNÓSTICO
                 telegram_notifier.send_message(message)
-        except Exception as e:
-            print(f"!!! Erro ao processar notificação de pagamento: {e}")
+                print("   - ✅ Notificação de venda enviada com sucesso via Telegram.")
+
+    except Exception as e:
+        # --- PROTOCOLO CAIXA-PRETA ATIVADO ---
+        print(f"!!! FALHA CRÍTICA AO PROCESSAR VENDA. Erro: {e}")
+        error_details = traceback.format_exc()
+        print(error_details)
+
+        error_message_for_debug = (
+            f"🚨 <b>ALERTA DE FALHA - ALMIRANTE</b> 🚨\n\n"
+            f"Ocorreu um erro ao tentar processar ou enviar uma notificação de venda.\n\n"
+            f"<b>ID da Venda:</b> {order_id}\n"
+            f"<b>Erro:</b>\n"
+            f"<pre>{str(e)}</pre>\n\n"
+            f"<b>Detalhes Técnicos:</b>\n"
+            f"<pre>{error_details}</pre>"
+        )
+        
+        try:
+            debug_notifier = TelegramNotifier(bot_token=TELEGRAM_BOT_TOKEN, chat_ids=[DEBUG_CHAT_ID])
+            debug_notifier.send_message(error_message_for_debug)
+            print(f"   - ✅ Mensagem de DEBUG da Caixa-Preta enviada para o ID {DEBUG_CHAT_ID}.")
+        except Exception as debug_e:
+            print(f"!!! FALHA CATASTRÓFICA: Não foi possível enviar nem a mensagem de DEBUG. Erro: {debug_e}")
+
     return "OK", 200
 
 def send_daily_report():
@@ -324,7 +355,7 @@ if __name__ == "__main__":
     scheduler_thread.start()
 
     print("======================================================================")
-    print("  Almirante Estratégico ATIVADO! (v2.5 - Precisão Absoluta)")
+    print("  Almirante Estratégico ATIVADO! (v2.6 - Caixa Preta)")
     print(f"  Linha do tempo definida. Ignorando vendas anteriores a: {CUTOFF_DATE.strftime('%d/%m/%Y %H:%M:%S')}")
     print("  Motor de relatórios diários e mensais engajado.")
     print("  Servidor web iniciando para receber notificações...")

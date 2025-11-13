@@ -1,4 +1,4 @@
-# Versão 2.8 - Paciência Estratégica
+# Versão 2.9 - Resiliência Tática
 import requests
 import time
 import os
@@ -173,13 +173,31 @@ def handle_ml_notification():
                         return "OK (duplicate)", 200
                     PROCESSED_ORDER_IDS.add(order_id)
                 
-                # --- OPERAÇÃO PACIÊNCIA ESTRATÉGICA ---
-                print("   - Paciência Estratégica: Aguardando 10 segundos para consolidação dos dados do ML...")
-                time.sleep(10)
-
+                # --- OPERAÇÃO RESILIÊNCIA TÁTICA ---
                 order_details_url = f"{MeliManager.API_URL}/orders/{order_id}"
-                order_response = requests.get(order_details_url, headers=headers)
-                order_response.raise_for_status()
+                order_response = None
+                max_retries = 3
+                retry_delay = 15 
+
+                for attempt in range(max_retries):
+                    try:
+                        print(f"   - Tentativa {attempt + 1}/{max_retries} para buscar detalhes da venda {order_id}...")
+                        order_response = requests.get(order_details_url, headers=headers, timeout=15)
+                        order_response.raise_for_status()
+                        print(f"   - Detalhes da venda {order_id} obtidos com sucesso.")
+                        break 
+                    except requests.exceptions.HTTPError as e:
+                        if e.response.status_code == 404 and attempt < max_retries - 1:
+                            print(f"   - AVISO: Venda {order_id} não encontrada (404). Aguardando {retry_delay}s para nova tentativa. (Atraso de propagação do ML)")
+                            time.sleep(retry_delay)
+                        else:
+                            print(f"   - ERRO FINAL: Não foi possível obter detalhes da venda {order_id} após {max_retries} tentativas.")
+                            raise 
+                
+                if not order_response:
+                    print(f"   - ERRO GRAVE: A resposta da venda {order_id} é nula mesmo após as tentativas.")
+                    return "OK (internal error)", 200
+
                 order_data = order_response.json()
 
                 date_iso_format = order_data.get('date_created', '')
@@ -253,7 +271,7 @@ def handle_ml_notification():
         error_details = traceback.format_exc()
         print(error_details)
         error_message_for_debug = (
-            f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v2.8</b> 🚨\n\n"
+            f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v2.9</b> 🚨\n\n"
             f"Ocorreu um erro ao tentar processar ou enviar uma notificação de venda.\n\n"
             f"<b>ID da Venda:</b> {order_id}\n"
             f"<b>Erro:</b>\n"
@@ -352,7 +370,7 @@ if __name__ == "__main__":
     scheduler_thread.start()
 
     print("======================================================================")
-    print("  Almirante Estratégico ATIVADO! (v2.8 - Paciência Estratégica)")
+    print("  Almirante Estratégico ATIVADO! (v2.9 - Resiliência Tática)")
     print(f"  Linha do tempo definida. Ignorando vendas anteriores a: {CUTOFF_DATE.strftime('%d/%m/%Y %H:%M:%S')}")
     print("  Motor de relatórios diários e mensais engajado.")
     print("  Servidor web iniciando para receber notificações...")

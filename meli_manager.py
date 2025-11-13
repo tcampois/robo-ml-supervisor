@@ -1,4 +1,4 @@
-# Versão 2.6 - Caixa Preta (Sonda de Diagnóstico)
+# Versão 2.7 - À Prova de Balas
 import requests
 import time
 import os
@@ -15,8 +15,6 @@ MEU_CLIENT_SECRET = os.environ.get('MEU_CLIENT_SECRET')
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_IDS_STR = os.environ.get('TELEGRAM_CHAT_IDS', '')
 TELEGRAM_CHAT_IDS = TELEGRAM_CHAT_IDS_STR.split(',') if TELEGRAM_CHAT_IDS_STR else []
-
-# ID de DEBUG: Seu ID pessoal, para onde os relatórios de erro serão enviados.
 DEBUG_CHAT_ID = '8411108712'
 
 ACCOUNTS_CONFIG = {
@@ -140,7 +138,6 @@ class TelegramNotifier:
                 print(f"  ✅ Mensagem enviada com sucesso para o ID: {chat_id}")
             except requests.exceptions.RequestException as e:
                 print(f"  !!! FALHA ao enviar para o ID {chat_id}: {e}")
-                # Re-lança a exceção para ser capturada pela sonda de diagnóstico
                 raise
 
 app = Flask(__name__)
@@ -202,10 +199,12 @@ def handle_ml_notification():
                         costs_data = costs_response.json()
                         for sender in costs_data.get('senders', []):
                             if sender.get('user_id') == seller_id:
-                                shipping_cost += sender.get('cost', 0)
+                                shipping_cost += sender.get('cost') or 0.0
 
                 for item in order_data.get('order_items', []):
-                    mercadolibre_fee += item.get('sale_fee', 0)
+                    # --- A CORREÇÃO DEFINITIVA ---
+                    # Se 'sale_fee' for None, ele será tratado como 0.0
+                    mercadolibre_fee += item.get('sale_fee') or 0.0
 
                 imposto_valor = total_amount * 0.0715
                 valor_liquido = total_amount - mercadolibre_fee - shipping_cost - imposto_valor
@@ -244,18 +243,15 @@ def handle_ml_notification():
                     f"✅ <b>Valor Líquido Final:</b> R$ {valor_liquido:.2f}"
                 )
                 
-                # SONDA DE DIAGNÓSTICO
                 telegram_notifier.send_message(message)
                 print("   - ✅ Notificação de venda enviada com sucesso via Telegram.")
 
     except Exception as e:
-        # --- PROTOCOLO CAIXA-PRETA ATIVADO ---
         print(f"!!! FALHA CRÍTICA AO PROCESSAR VENDA. Erro: {e}")
         error_details = traceback.format_exc()
         print(error_details)
-
         error_message_for_debug = (
-            f"🚨 <b>ALERTA DE FALHA - ALMIRANTE</b> 🚨\n\n"
+            f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v2.7</b> 🚨\n\n"
             f"Ocorreu um erro ao tentar processar ou enviar uma notificação de venda.\n\n"
             f"<b>ID da Venda:</b> {order_id}\n"
             f"<b>Erro:</b>\n"
@@ -263,7 +259,6 @@ def handle_ml_notification():
             f"<b>Detalhes Técnicos:</b>\n"
             f"<pre>{error_details}</pre>"
         )
-        
         try:
             debug_notifier = TelegramNotifier(bot_token=TELEGRAM_BOT_TOKEN, chat_ids=[DEBUG_CHAT_ID])
             debug_notifier.send_message(error_message_for_debug)
@@ -355,7 +350,7 @@ if __name__ == "__main__":
     scheduler_thread.start()
 
     print("======================================================================")
-    print("  Almirante Estratégico ATIVADO! (v2.6 - Caixa Preta)")
+    print("  Almirante Estratégico ATIVADO! (v2.7 - À Prova de Balas)")
     print(f"  Linha do tempo definida. Ignorando vendas anteriores a: {CUTOFF_DATE.strftime('%d/%m/%Y %H:%M:%S')}")
     print("  Motor de relatórios diários e mensais engajado.")
     print("  Servidor web iniciando para receber notificações...")

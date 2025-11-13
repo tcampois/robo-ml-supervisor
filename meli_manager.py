@@ -1,4 +1,4 @@
-# Versão 2.7 - À Prova de Balas
+# Versão 2.8 - Paciência Estratégica
 import requests
 import time
 import os
@@ -173,6 +173,10 @@ def handle_ml_notification():
                         return "OK (duplicate)", 200
                     PROCESSED_ORDER_IDS.add(order_id)
                 
+                # --- OPERAÇÃO PACIÊNCIA ESTRATÉGICA ---
+                print("   - Paciência Estratégica: Aguardando 10 segundos para consolidação dos dados do ML...")
+                time.sleep(10)
+
                 order_details_url = f"{MeliManager.API_URL}/orders/{order_id}"
                 order_response = requests.get(order_details_url, headers=headers)
                 order_response.raise_for_status()
@@ -202,8 +206,6 @@ def handle_ml_notification():
                                 shipping_cost += sender.get('cost') or 0.0
 
                 for item in order_data.get('order_items', []):
-                    # --- A CORREÇÃO DEFINITIVA ---
-                    # Se 'sale_fee' for None, ele será tratado como 0.0
                     mercadolibre_fee += item.get('sale_fee') or 0.0
 
                 imposto_valor = total_amount * 0.0715
@@ -251,7 +253,7 @@ def handle_ml_notification():
         error_details = traceback.format_exc()
         print(error_details)
         error_message_for_debug = (
-            f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v2.7</b> 🚨\n\n"
+            f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v2.8</b> 🚨\n\n"
             f"Ocorreu um erro ao tentar processar ou enviar uma notificação de venda.\n\n"
             f"<b>ID da Venda:</b> {order_id}\n"
             f"<b>Erro:</b>\n"
@@ -350,7 +352,7 @@ if __name__ == "__main__":
     scheduler_thread.start()
 
     print("======================================================================")
-    print("  Almirante Estratégico ATIVADO! (v2.7 - À Prova de Balas)")
+    print("  Almirante Estratégico ATIVADO! (v2.8 - Paciência Estratégica)")
     print(f"  Linha do tempo definida. Ignorando vendas anteriores a: {CUTOFF_DATE.strftime('%d/%m/%Y %H:%M:%S')}")
     print("  Motor de relatórios diários e mensais engajado.")
     print("  Servidor web iniciando para receber notificações...")

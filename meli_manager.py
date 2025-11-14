@@ -1,4 +1,4 @@
-# Versão 4.0 - Precisão Financeira Absoluta
+# Versão 5.0 - Maturação Estratégica
 import requests
 import time
 import os
@@ -63,6 +63,10 @@ class CommandQueue:
             queue.append(item)
             with open(self.filename, 'w') as f: json.dump(queue, f, indent=2)
             print(f"   - Ordem adicionada à Fila de Comando: {item['order_id']}")
+    def peek_next_item(self):
+        with self._lock:
+            queue = self._read_queue()
+            return queue[0] if queue else None
     def get_next_item(self):
         with self._lock:
             queue = self._read_queue()
@@ -192,16 +196,36 @@ def handle_ml_notification():
     return "OK", 200
 
 def process_command_queue():
+    MINIMUM_AGE = timedelta(minutes=5)
+    
     while True:
-        item = command_queue.get_next_item()
-        if not item:
+        item_to_process = None
+        
+        # --- LÓGICA DE MATURAÇÃO ESTRATÉGICA ---
+        next_item = command_queue.peek_next_item()
+        if next_item:
+            item_timestamp = datetime.fromisoformat(next_item['timestamp'])
+            item_age = datetime.now(timezone.utc) - item_timestamp
+            
+            if item_age >= MINIMUM_AGE:
+                # A ordem está madura, pode ser processada.
+                item_to_process = command_queue.get_next_item()
+                print(f"\n\n--- 🕵️ Ordem {item_to_process['order_id']} madura. Autorizando processamento. ---")
+            else:
+                # A ordem é muito recente. Aguarda.
+                wait_time = (MINIMUM_AGE - item_age).total_seconds()
+                print(f"   - Próxima ordem {next_item['order_id']} muito recente. Maturando por mais {int(wait_time)}s...")
+        
+        if not item_to_process:
+            # Fila vazia ou a próxima ordem ainda não está madura.
             time.sleep(30)
             continue
 
-        seller_id = item['seller_id']
-        order_id = item['order_id']
+        # --- INÍCIO DO PROCESSAMENTO DA ORDEM MADURA ---
+        seller_id = item_to_process['seller_id']
+        order_id = item_to_process['order_id']
         
-        print(f"\n\n--- ⚙️ Processando Ordem da Fila de Comando: {order_id} ---")
+        print(f"--- ⚙️ Processando Ordem da Fila de Comando: {order_id} ---")
 
         try:
             with PROCESSED_IDS_LOCK:
@@ -256,11 +280,9 @@ def process_command_queue():
             total_amount = order_data.get('total_amount', 0)
             shipping_cost = 0.0
             
-            # --- MÓDULO DE PRECISÃO FINANCEIRA ABSOLUTA ---
             mercadolibre_total_fee = 0.0
             fee_details_list = []
 
-            # 1. Custo de Envio
             shipping_id = order_data.get('shipping', {}).get('id')
             if shipping_id:
                 costs_url = f"{MeliManager.API_URL}/shipments/{shipping_id}/costs"
@@ -271,23 +293,14 @@ def process_command_queue():
                         if sender.get('user_id') == seller_id:
                             shipping_cost += sender.get('cost') or 0.0
             
-            # 2. Detalhamento de Tarifas
             detailed_fees = order_data.get('fees', [])
             for fee_component in detailed_fees:
                 fee_type = fee_component.get('type', 'desconhecida')
                 fee_amount = fee_component.get('amount') or 0.0
-                
-                # A API retorna valores negativos para custos. Usamos o valor absoluto para somar aos custos.
                 fee_cost = abs(fee_amount)
                 mercadolibre_total_fee += fee_cost
                 
-                # Mapeia os nomes técnicos para nomes amigáveis
-                fee_name_map = {
-                    "listing_fee": "Tarifa de Venda",
-                    "fixed_fee": "Custo Fixo",
-                    "shipping_fee": "Custo de Envio (Tarifa)",
-                    "handling_fee": "Taxa de Manuseio"
-                }
+                fee_name_map = {"listing_fee": "Tarifa de Venda", "fixed_fee": "Custo Fixo", "shipping_fee": "Custo de Envio (Tarifa)", "handling_fee": "Taxa de Manuseio"}
                 fee_name = fee_name_map.get(fee_type, fee_type.replace('_', ' ').title())
                 fee_details_list.append(f"   <em>- {fee_name}: R$ {fee_cost:.2f}</em>")
 
@@ -339,7 +352,7 @@ def process_command_queue():
             error_details = traceback.format_exc()
             print(error_details)
             error_message_for_debug = (
-                f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v4.0 (FILA)</b> 🚨\n\n"
+                f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v5.0 (FILA)</b> 🚨\n\n"
                 f"Ocorreu um erro ao tentar processar uma venda da fila de comando.\n\n"
                 f"<b>ID da Venda:</b> {order_id}\n"
                 f"<b>Erro:</b>\n<pre>{str(e)}</pre>\n\n"
@@ -439,9 +452,9 @@ if __name__ == "__main__":
     scheduler_thread.start()
 
     print("======================================================================")
-    print("  Almirante Estratégico ATIVADO! (v4.0 - Precisão Financeira Absoluta)")
+    print("  Almirante Estratégico ATIVADO! (v5.0 - Maturação Estratégica)")
     print(f"  Linha do tempo definida. Ignorando vendas anteriores a: {CUTOFF_DATE.strftime('%d/%m/%Y %H:%M:%S')}")
-    print("  Oficial de Processamento da Fila engajado.")
+    print("  General de Logística inspecionando a fila a cada 30s.")
     print("  Motor de relatórios diários e mensais engajado.")
     print("  Servidor web (Triage) iniciando para receber notificações...")
     print("======================================================================")

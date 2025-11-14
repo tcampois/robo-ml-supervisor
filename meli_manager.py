@@ -1,4 +1,4 @@
-# Versão 3.0 - Fila de Comando
+# Versão 4.0 - Precisão Financeira Absoluta
 import requests
 import time
 import os
@@ -28,7 +28,7 @@ CUTOFF_DATE = datetime.now(timezone.utc)
 PROCESSED_ORDER_IDS = set()
 PROCESSED_IDS_LOCK = threading.Lock()
 LEDGER_FILE = "daily_ledger.json"
-COMMAND_QUEUE_FILE = "command_queue.json" # Arquivo da Fila de Comando
+COMMAND_QUEUE_FILE = "command_queue.json"
 
 SELLER_NICKNAMES = {
     323091477: "EQUIPESCAFORTE",
@@ -178,7 +178,7 @@ def handle_ml_notification():
             
             with PROCESSED_IDS_LOCK:
                 if order_id in PROCESSED_ORDER_IDS:
-                    print(f"   - Venda duplicada (ID: {order_id}) já processada. Ignorando.")
+                    print(f"   - Venda duplicada (ID: {order_id}) já na fila ou processada. Ignorando.")
                     return "OK (duplicate)", 200
             
             command_queue.add_to_queue({
@@ -195,7 +195,7 @@ def process_command_queue():
     while True:
         item = command_queue.get_next_item()
         if not item:
-            time.sleep(30) # Espera 30 segundos se a fila estiver vazia
+            time.sleep(30)
             continue
 
         seller_id = item['seller_id']
@@ -251,12 +251,16 @@ def process_command_queue():
                 print(f"   - Venda antiga (anterior à inicialização) ignorada. ID: {order_id}")
                 continue
             
-            print("   - Venda nova e única. Processando com precisão absoluta...")
+            print("   - Venda nova e única. Processando com precisão financeira absoluta...")
 
             total_amount = order_data.get('total_amount', 0)
             shipping_cost = 0.0
-            mercadolibre_fee = 0.0
+            
+            # --- MÓDULO DE PRECISÃO FINANCEIRA ABSOLUTA ---
+            mercadolibre_total_fee = 0.0
+            fee_details_list = []
 
+            # 1. Custo de Envio
             shipping_id = order_data.get('shipping', {}).get('id')
             if shipping_id:
                 costs_url = f"{MeliManager.API_URL}/shipments/{shipping_id}/costs"
@@ -266,12 +270,29 @@ def process_command_queue():
                     for sender in costs_data.get('senders', []):
                         if sender.get('user_id') == seller_id:
                             shipping_cost += sender.get('cost') or 0.0
-
-            for order_item_data in order_data.get('order_items', []):
-                mercadolibre_fee += order_item_data.get('sale_fee') or 0.0
+            
+            # 2. Detalhamento de Tarifas
+            detailed_fees = order_data.get('fees', [])
+            for fee_component in detailed_fees:
+                fee_type = fee_component.get('type', 'desconhecida')
+                fee_amount = fee_component.get('amount') or 0.0
+                
+                # A API retorna valores negativos para custos. Usamos o valor absoluto para somar aos custos.
+                fee_cost = abs(fee_amount)
+                mercadolibre_total_fee += fee_cost
+                
+                # Mapeia os nomes técnicos para nomes amigáveis
+                fee_name_map = {
+                    "listing_fee": "Tarifa de Venda",
+                    "fixed_fee": "Custo Fixo",
+                    "shipping_fee": "Custo de Envio (Tarifa)",
+                    "handling_fee": "Taxa de Manuseio"
+                }
+                fee_name = fee_name_map.get(fee_type, fee_type.replace('_', ' ').title())
+                fee_details_list.append(f"   <em>- {fee_name}: R$ {fee_cost:.2f}</em>")
 
             imposto_valor = total_amount * 0.0715
-            valor_liquido = total_amount - mercadolibre_fee - shipping_cost - imposto_valor
+            valor_liquido = total_amount - mercadolibre_total_fee - shipping_cost - imposto_valor
             
             ledger.record_sale(seller_id, total_amount, valor_liquido)
 
@@ -297,10 +318,13 @@ def process_command_queue():
                 f"🧾 <b>ID Venda:</b> {order_id}\n"
                 f"🚚 <b>Envio:</b> {shipping_mode}\n\n"
                 f"💵 <b>Valor Total:</b> R$ {total_amount:.2f}\n"
-                f"💸 <b>Tarifa Total ML:</b> -R$ {mercadolibre_fee:.2f}\n"
+                f"💸 <b>Tarifa Total ML:</b> -R$ {mercadolibre_total_fee:.2f}\n"
             )
+            if fee_details_list:
+                message += "\n".join(fee_details_list) + "\n"
+
             if shipping_cost > 0:
-                message += f"🚛 <b>Custo de Envio:</b> -R$ {shipping_cost:.2f}\n"
+                message += f"🚛 <b>Custo de Envio (Etiqueta):</b> -R$ {shipping_cost:.2f}\n"
             
             message += (
                 f"📉 <b>Imposto (7,15%):</b> -R$ {imposto_valor:.2f}\n"
@@ -315,7 +339,7 @@ def process_command_queue():
             error_details = traceback.format_exc()
             print(error_details)
             error_message_for_debug = (
-                f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v3.0 (FILA)</b> 🚨\n\n"
+                f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v4.0 (FILA)</b> 🚨\n\n"
                 f"Ocorreu um erro ao tentar processar uma venda da fila de comando.\n\n"
                 f"<b>ID da Venda:</b> {order_id}\n"
                 f"<b>Erro:</b>\n<pre>{str(e)}</pre>\n\n"
@@ -406,7 +430,6 @@ if __name__ == "__main__":
     multi_manager = MultiMeliManager(ACCOUNTS_CONFIG)
     telegram_notifier = TelegramNotifier(bot_token=TELEGRAM_BOT_TOKEN, chat_ids=TELEGRAM_CHAT_IDS)
     
-    # Inicia os workers em threads separadas
     queue_processor_thread = threading.Thread(target=process_command_queue)
     queue_processor_thread.daemon = True
     queue_processor_thread.start()
@@ -416,7 +439,7 @@ if __name__ == "__main__":
     scheduler_thread.start()
 
     print("======================================================================")
-    print("  Almirante Estratégico ATIVADO! (v3.0 - Fila de Comando)")
+    print("  Almirante Estratégico ATIVADO! (v4.0 - Precisão Financeira Absoluta)")
     print(f"  Linha do tempo definida. Ignorando vendas anteriores a: {CUTOFF_DATE.strftime('%d/%m/%Y %H:%M:%S')}")
     print("  Oficial de Processamento da Fila engajado.")
     print("  Motor de relatórios diários e mensais engajado.")

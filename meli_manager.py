@@ -1,4 +1,4 @@
-# Versão 2.9 - Resiliência Tática
+# Versão 3.0 - Fila de Comando
 import requests
 import time
 import os
@@ -28,6 +28,7 @@ CUTOFF_DATE = datetime.now(timezone.utc)
 PROCESSED_ORDER_IDS = set()
 PROCESSED_IDS_LOCK = threading.Lock()
 LEDGER_FILE = "daily_ledger.json"
+COMMAND_QUEUE_FILE = "command_queue.json" # Arquivo da Fila de Comando
 
 SELLER_NICKNAMES = {
     323091477: "EQUIPESCAFORTE",
@@ -43,6 +44,33 @@ SELLER_EMOJIS = {
     75080160: "🏕️"
 }
 
+class CommandQueue:
+    def __init__(self, filename):
+        self.filename = filename
+        self._lock = threading.Lock()
+        self._ensure_file_exists()
+    def _ensure_file_exists(self):
+        with self._lock:
+            if not os.path.exists(self.filename):
+                with open(self.filename, 'w') as f: json.dump([], f)
+    def _read_queue(self):
+        try:
+            with open(self.filename, 'r') as f: return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError): return []
+    def add_to_queue(self, item):
+        with self._lock:
+            queue = self._read_queue()
+            queue.append(item)
+            with open(self.filename, 'w') as f: json.dump(queue, f, indent=2)
+            print(f"   - Ordem adicionada à Fila de Comando: {item['order_id']}")
+    def get_next_item(self):
+        with self._lock:
+            queue = self._read_queue()
+            if not queue: return None
+            item = queue.pop(0)
+            with open(self.filename, 'w') as f: json.dump(queue, f, indent=2)
+            return item
+
 class DailyLedger:
     def __init__(self, filename):
         self.filename = filename
@@ -51,32 +79,20 @@ class DailyLedger:
     def _ensure_file_exists(self):
         with self._lock:
             if not os.path.exists(self.filename):
-                with open(self.filename, 'w') as f:
-                    json.dump([], f)
+                with open(self.filename, 'w') as f: json.dump([], f)
     def record_sale(self, seller_id, gross_value, net_value):
         with self._lock:
             records = self._read_records()
-            records.append({
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "seller_id": seller_id,
-                "gross": gross_value,
-                "net": net_value
-            })
-            with open(self.filename, 'w') as f:
-                json.dump(records, f, indent=2)
+            records.append({"timestamp": datetime.now(timezone.utc).isoformat(), "seller_id": seller_id, "gross": gross_value, "net": net_value})
+            with open(self.filename, 'w') as f: json.dump(records, f, indent=2)
         print(f"   - Venda registrada no livro-caixa: {self.filename}")
     def _read_records(self):
         try:
-            with open(self.filename, 'r') as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return []
+            with open(self.filename, 'r') as f: return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError): return []
     def get_records_for_period(self, start_date, end_date):
         records = self._read_records()
-        return [
-            r for r in records
-            if start_date <= datetime.fromisoformat(r['timestamp']) < end_date
-        ]
+        return [r for r in records if start_date <= datetime.fromisoformat(r['timestamp']) < end_date]
 
 class MeliManager:
     API_URL = "https://api.mercadolibre.com"
@@ -103,20 +119,12 @@ class MeliManager:
             raise
     def get_access_token(self) -> str:
         with self._lock:
-            if not self.access_token or time.time() >= self.expires_at:
-                self._refresh_token()
+            if not self.access_token or time.time() >= self.expires_at: self._refresh_token()
             return self.access_token
 
 class MultiMeliManager:
     def __init__(self, accounts_config: dict):
-        self.managers = {}
-        for seller_id, config in accounts_config.items():
-            if config.get('refresh_token'):
-                self.managers[str(seller_id)] = MeliManager(
-                    client_id=config['client_id'],
-                    client_secret=config['client_secret'],
-                    refresh_token=config['refresh_token']
-                )
+        self.managers = {str(seller_id): MeliManager(c['client_id'], c['client_secret'], c['refresh_token']) for seller_id, c in accounts_config.items() if c.get('refresh_token')}
         print(f"Comandante de Frota iniciado com {len(self.managers)} contas sob vigilância.")
     def get_manager_for_seller(self, seller_id: int):
         return self.managers.get(str(seller_id))
@@ -147,146 +155,178 @@ def handle_ml_notification():
     notification_data = request.json
     seller_id = notification_data.get('user_id')
     if not seller_id: return "OK (sem user_id)", 200
-    manager = multi_manager.get_manager_for_seller(seller_id)
-    if not manager: return "OK (vendedor não gerenciado)", 200
     
-    order_id = "N/A"
+    topic = notification_data.get('topic')
+    if topic != 'payments': return "OK (not a payment)", 200
+
+    resource_path = notification_data.get('resource')
+    if not resource_path: return "OK (no resource)", 200
+
     try:
-        topic = notification_data.get('topic')
-        if topic == 'payments':
-            seller_nickname_log = SELLER_NICKNAMES.get(seller_id, f"ID {seller_id}")
-            print(f"\n🔔 Notificação de PAGAMENTO recebida para: {seller_nickname_log}")
-            resource_path = notification_data.get('resource')
+        payment_id = int(resource_path.split('/')[-1])
+        manager = multi_manager.get_manager_for_seller(seller_id)
+        if not manager: return "OK (vendedor não gerenciado)", 200
+        
+        token = manager.get_access_token()
+        headers = {'Authorization': f'Bearer {token}'}
+        payment_response = requests.get(f"{MeliManager.API_URL}{resource_path}", headers=headers)
+        payment_response.raise_for_status()
+        payment_data = payment_response.json()
+
+        if payment_data.get('status') == 'approved' and payment_data.get('order_id'):
+            order_id = payment_data.get('order_id')
             
-            full_resource_url = f"{MeliManager.API_URL}{resource_path}"
-            token = manager.get_access_token()
-            headers = {'Authorization': f'Bearer {token}'}
-            payment_response = requests.get(full_resource_url, headers=headers)
-            payment_response.raise_for_status()
-            payment_data = payment_response.json()
-
-            if payment_data.get('status') == 'approved' and payment_data.get('order_id'):
-                order_id = payment_data.get('order_id')
-                with PROCESSED_IDS_LOCK:
-                    if order_id in PROCESSED_ORDER_IDS:
-                        print(f"   - Venda duplicada (ID: {order_id}) já processada. Ignorando.")
-                        return "OK (duplicate)", 200
-                    PROCESSED_ORDER_IDS.add(order_id)
-                
-                # --- OPERAÇÃO RESILIÊNCIA TÁTICA ---
-                order_details_url = f"{MeliManager.API_URL}/orders/{order_id}"
-                order_response = None
-                max_retries = 3
-                retry_delay = 15 
-
-                for attempt in range(max_retries):
-                    try:
-                        print(f"   - Tentativa {attempt + 1}/{max_retries} para buscar detalhes da venda {order_id}...")
-                        order_response = requests.get(order_details_url, headers=headers, timeout=15)
-                        order_response.raise_for_status()
-                        print(f"   - Detalhes da venda {order_id} obtidos com sucesso.")
-                        break 
-                    except requests.exceptions.HTTPError as e:
-                        if e.response.status_code == 404 and attempt < max_retries - 1:
-                            print(f"   - AVISO: Venda {order_id} não encontrada (404). Aguardando {retry_delay}s para nova tentativa. (Atraso de propagação do ML)")
-                            time.sleep(retry_delay)
-                        else:
-                            print(f"   - ERRO FINAL: Não foi possível obter detalhes da venda {order_id} após {max_retries} tentativas.")
-                            raise 
-                
-                if not order_response:
-                    print(f"   - ERRO GRAVE: A resposta da venda {order_id} é nula mesmo após as tentativas.")
-                    return "OK (internal error)", 200
-
-                order_data = order_response.json()
-
-                date_iso_format = order_data.get('date_created', '')
-                if not date_iso_format: return "OK", 200
-                sale_datetime_obj = datetime.fromisoformat(date_iso_format.replace('Z', '+00:00'))
-                if sale_datetime_obj < CUTOFF_DATE:
-                    print(f"   - Venda antiga (anterior à inicialização) ignorada. ID: {order_id}")
-                    return "OK", 200
-                
-                print("   - Venda nova e única. Processando com precisão absoluta...")
-
-                total_amount = order_data.get('total_amount', 0)
-                shipping_cost = 0.0
-                mercadolibre_fee = 0.0
-
-                shipping_id = order_data.get('shipping', {}).get('id')
-                if shipping_id:
-                    costs_url = f"{MeliManager.API_URL}/shipments/{shipping_id}/costs"
-                    costs_response = requests.get(costs_url, headers=headers)
-                    if costs_response.status_code == 200:
-                        costs_data = costs_response.json()
-                        for sender in costs_data.get('senders', []):
-                            if sender.get('user_id') == seller_id:
-                                shipping_cost += sender.get('cost') or 0.0
-
-                for item in order_data.get('order_items', []):
-                    mercadolibre_fee += item.get('sale_fee') or 0.0
-
-                imposto_valor = total_amount * 0.0715
-                valor_liquido = total_amount - mercadolibre_fee - shipping_cost - imposto_valor
-                
-                ledger.record_sale(seller_id, total_amount, valor_liquido)
-
-                seller_nickname = SELLER_NICKNAMES.get(seller_id, f"ID {seller_id}")
-                seller_emoji = SELLER_EMOJIS.get(seller_id, "🏪")
-                buyer_info = order_data.get('buyer', {})
-                full_buyer_name = f"{buyer_info.get('first_name', '')} {buyer_info.get('last_name', '')}".strip() or buyer_info.get('nickname', 'N/A')
-                sale_datetime_str = sale_datetime_obj.strftime('%d/%m/%Y às %H:%M')
-                order_item = order_data.get('order_items', [{}])[0]
-                item_info = order_item.get('item', {})
-                mlb_id = item_info.get('id', 'N/A')
-                shipping_info = order_data.get('shipping', {})
-                logistic_type = shipping_info.get('logistic_type')
-                shipping_mode = "Mercado Envios (FULL)" if logistic_type == 'fulfillment' else "Mercado Envios (Empresa)"
-
-                message = (
-                    f"💰 <b>NOVA VENDA APROVADA</b> 💰\n\n"
-                    f"🏪 <b>Vendedor:</b> {seller_emoji} <b>{seller_nickname}</b>\n"
-                    f"🗓️ <b>Data:</b> {sale_datetime_str}\n\n"
-                    f"👤 <b>Comprador:</b> {full_buyer_name}\n"
-                    f"📦 <b>Produto:</b> {item_info.get('title', 'N/A')}\n"
-                    f"🆔 <b>MLB:</b> {mlb_id}\n"
-                    f"🧾 <b>ID Venda:</b> {order_id}\n"
-                    f"🚚 <b>Envio:</b> {shipping_mode}\n\n"
-                    f"💵 <b>Valor Total:</b> R$ {total_amount:.2f}\n"
-                    f"💸 <b>Tarifa Total ML:</b> -R$ {mercadolibre_fee:.2f}\n"
-                )
-                if shipping_cost > 0:
-                    message += f"🚛 <b>Custo de Envio:</b> -R$ {shipping_cost:.2f}\n"
-                
-                message += (
-                    f"📉 <b>Imposto (7,15%):</b> -R$ {imposto_valor:.2f}\n"
-                    f"✅ <b>Valor Líquido Final:</b> R$ {valor_liquido:.2f}"
-                )
-                
-                telegram_notifier.send_message(message)
-                print("   - ✅ Notificação de venda enviada com sucesso via Telegram.")
-
+            with PROCESSED_IDS_LOCK:
+                if order_id in PROCESSED_ORDER_IDS:
+                    print(f"   - Venda duplicada (ID: {order_id}) já processada. Ignorando.")
+                    return "OK (duplicate)", 200
+            
+            command_queue.add_to_queue({
+                "seller_id": seller_id,
+                "order_id": order_id,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
     except Exception as e:
-        print(f"!!! FALHA CRÍTICA AO PROCESSAR VENDA. Erro: {e}")
-        error_details = traceback.format_exc()
-        print(error_details)
-        error_message_for_debug = (
-            f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v2.9</b> 🚨\n\n"
-            f"Ocorreu um erro ao tentar processar ou enviar uma notificação de venda.\n\n"
-            f"<b>ID da Venda:</b> {order_id}\n"
-            f"<b>Erro:</b>\n"
-            f"<pre>{str(e)}</pre>\n\n"
-            f"<b>Detalhes Técnicos:</b>\n"
-            f"<pre>{error_details}</pre>"
-        )
-        try:
-            debug_notifier = TelegramNotifier(bot_token=TELEGRAM_BOT_TOKEN, chat_ids=[DEBUG_CHAT_ID])
-            debug_notifier.send_message(error_message_for_debug)
-            print(f"   - ✅ Mensagem de DEBUG da Caixa-Preta enviada para o ID {DEBUG_CHAT_ID}.")
-        except Exception as debug_e:
-            print(f"!!! FALHA CATASTRÓFICA: Não foi possível enviar nem a mensagem de DEBUG. Erro: {debug_e}")
+        print(f"!!! ERRO NA TRIAGEM: Falha ao adicionar à fila. Erro: {e}")
 
     return "OK", 200
+
+def process_command_queue():
+    while True:
+        item = command_queue.get_next_item()
+        if not item:
+            time.sleep(30) # Espera 30 segundos se a fila estiver vazia
+            continue
+
+        seller_id = item['seller_id']
+        order_id = item['order_id']
+        
+        print(f"\n\n--- ⚙️ Processando Ordem da Fila de Comando: {order_id} ---")
+
+        try:
+            with PROCESSED_IDS_LOCK:
+                if order_id in PROCESSED_ORDER_IDS:
+                    print(f"   - Venda duplicada (ID: {order_id}) já na lista final. Ignorando.")
+                    continue
+                PROCESSED_ORDER_IDS.add(order_id)
+
+            manager = multi_manager.get_manager_for_seller(seller_id)
+            if not manager:
+                print(f"   - ERRO: Gerente para vendedor {seller_id} não encontrado.")
+                continue
+            
+            token = manager.get_access_token()
+            headers = {'Authorization': f'Bearer {token}'}
+
+            order_details_url = f"{MeliManager.API_URL}/orders/{order_id}"
+            order_response = None
+            max_retries = 3
+            retry_delay = 15 
+
+            for attempt in range(max_retries):
+                try:
+                    print(f"   - Tentativa {attempt + 1}/{max_retries} para buscar detalhes da venda {order_id}...")
+                    order_response = requests.get(order_details_url, headers=headers, timeout=15)
+                    order_response.raise_for_status()
+                    print(f"   - Detalhes da venda {order_id} obtidos com sucesso.")
+                    break 
+                except requests.exceptions.HTTPError as e:
+                    if e.response.status_code == 404 and attempt < max_retries - 1:
+                        print(f"   - AVISO: Venda {order_id} não encontrada (404). Aguardando {retry_delay}s para nova tentativa.")
+                        time.sleep(retry_delay)
+                    else:
+                        print(f"   - ERRO FINAL: Não foi possível obter detalhes da venda {order_id} após {max_retries} tentativas.")
+                        raise 
+            
+            if not order_response:
+                print(f"   - ERRO GRAVE: A resposta da venda {order_id} é nula mesmo após as tentativas.")
+                continue
+
+            order_data = order_response.json()
+
+            date_iso_format = order_data.get('date_created', '')
+            if not date_iso_format: continue
+            sale_datetime_obj = datetime.fromisoformat(date_iso_format.replace('Z', '+00:00'))
+            if sale_datetime_obj < CUTOFF_DATE:
+                print(f"   - Venda antiga (anterior à inicialização) ignorada. ID: {order_id}")
+                continue
+            
+            print("   - Venda nova e única. Processando com precisão absoluta...")
+
+            total_amount = order_data.get('total_amount', 0)
+            shipping_cost = 0.0
+            mercadolibre_fee = 0.0
+
+            shipping_id = order_data.get('shipping', {}).get('id')
+            if shipping_id:
+                costs_url = f"{MeliManager.API_URL}/shipments/{shipping_id}/costs"
+                costs_response = requests.get(costs_url, headers=headers)
+                if costs_response.status_code == 200:
+                    costs_data = costs_response.json()
+                    for sender in costs_data.get('senders', []):
+                        if sender.get('user_id') == seller_id:
+                            shipping_cost += sender.get('cost') or 0.0
+
+            for order_item_data in order_data.get('order_items', []):
+                mercadolibre_fee += order_item_data.get('sale_fee') or 0.0
+
+            imposto_valor = total_amount * 0.0715
+            valor_liquido = total_amount - mercadolibre_fee - shipping_cost - imposto_valor
+            
+            ledger.record_sale(seller_id, total_amount, valor_liquido)
+
+            seller_nickname = SELLER_NICKNAMES.get(seller_id, f"ID {seller_id}")
+            seller_emoji = SELLER_EMOJIS.get(seller_id, "🏪")
+            buyer_info = order_data.get('buyer', {})
+            full_buyer_name = f"{buyer_info.get('first_name', '')} {buyer_info.get('last_name', '')}".strip() or buyer_info.get('nickname', 'N/A')
+            sale_datetime_str = sale_datetime_obj.strftime('%d/%m/%Y às %H:%M')
+            order_item = order_data.get('order_items', [{}])[0]
+            item_info = order_item.get('item', {})
+            mlb_id = item_info.get('id', 'N/A')
+            shipping_info = order_data.get('shipping', {})
+            logistic_type = shipping_info.get('logistic_type')
+            shipping_mode = "Mercado Envios (FULL)" if logistic_type == 'fulfillment' else "Mercado Envios (Empresa)"
+
+            message = (
+                f"💰 <b>NOVA VENDA APROVADA</b> 💰\n\n"
+                f"🏪 <b>Vendedor:</b> {seller_emoji} <b>{seller_nickname}</b>\n"
+                f"🗓️ <b>Data:</b> {sale_datetime_str}\n\n"
+                f"👤 <b>Comprador:</b> {full_buyer_name}\n"
+                f"📦 <b>Produto:</b> {item_info.get('title', 'N/A')}\n"
+                f"🆔 <b>MLB:</b> {mlb_id}\n"
+                f"🧾 <b>ID Venda:</b> {order_id}\n"
+                f"🚚 <b>Envio:</b> {shipping_mode}\n\n"
+                f"💵 <b>Valor Total:</b> R$ {total_amount:.2f}\n"
+                f"💸 <b>Tarifa Total ML:</b> -R$ {mercadolibre_fee:.2f}\n"
+            )
+            if shipping_cost > 0:
+                message += f"🚛 <b>Custo de Envio:</b> -R$ {shipping_cost:.2f}\n"
+            
+            message += (
+                f"📉 <b>Imposto (7,15%):</b> -R$ {imposto_valor:.2f}\n"
+                f"✅ <b>Valor Líquido Final:</b> R$ {valor_liquido:.2f}"
+            )
+            
+            telegram_notifier.send_message(message)
+            print("   - ✅ Notificação de venda enviada com sucesso via Telegram.")
+
+        except Exception as e:
+            print(f"!!! FALHA CRÍTICA AO PROCESSAR A FILA. Erro: {e}")
+            error_details = traceback.format_exc()
+            print(error_details)
+            error_message_for_debug = (
+                f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v3.0 (FILA)</b> 🚨\n\n"
+                f"Ocorreu um erro ao tentar processar uma venda da fila de comando.\n\n"
+                f"<b>ID da Venda:</b> {order_id}\n"
+                f"<b>Erro:</b>\n<pre>{str(e)}</pre>\n\n"
+                f"<b>Detalhes Técnicos:</b>\n<pre>{error_details}</pre>"
+            )
+            try:
+                debug_notifier = TelegramNotifier(bot_token=TELEGRAM_BOT_TOKEN, chat_ids=[DEBUG_CHAT_ID])
+                debug_notifier.send_message(error_message_for_debug)
+                print(f"   - ✅ Mensagem de DEBUG da Caixa-Preta enviada para o ID {DEBUG_CHAT_ID}.")
+            except Exception as debug_e:
+                print(f"!!! FALHA CATASTRÓFICA: Não foi possível enviar nem a mensagem de DEBUG. Erro: {debug_e}")
 
 def send_daily_report():
     print("\n\n--- ⚙️  Gerando Relatório Diário... ---")
@@ -361,19 +401,26 @@ if __name__ == "__main__":
         print("!!! ERRO CRÍTICO: Variáveis de ambiente essenciais não foram configuradas.")
         exit(1)
 
+    command_queue = CommandQueue(COMMAND_QUEUE_FILE)
     ledger = DailyLedger(LEDGER_FILE)
     multi_manager = MultiMeliManager(ACCOUNTS_CONFIG)
     telegram_notifier = TelegramNotifier(bot_token=TELEGRAM_BOT_TOKEN, chat_ids=TELEGRAM_CHAT_IDS)
     
+    # Inicia os workers em threads separadas
+    queue_processor_thread = threading.Thread(target=process_command_queue)
+    queue_processor_thread.daemon = True
+    queue_processor_thread.start()
+
     scheduler_thread = threading.Thread(target=run_scheduler)
     scheduler_thread.daemon = True
     scheduler_thread.start()
 
     print("======================================================================")
-    print("  Almirante Estratégico ATIVADO! (v2.9 - Resiliência Tática)")
+    print("  Almirante Estratégico ATIVADO! (v3.0 - Fila de Comando)")
     print(f"  Linha do tempo definida. Ignorando vendas anteriores a: {CUTOFF_DATE.strftime('%d/%m/%Y %H:%M:%S')}")
+    print("  Oficial de Processamento da Fila engajado.")
     print("  Motor de relatórios diários e mensais engajado.")
-    print("  Servidor web iniciando para receber notificações...")
+    print("  Servidor web (Triage) iniciando para receber notificações...")
     print("======================================================================")
     
     run_app()

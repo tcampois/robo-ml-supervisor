@@ -1,4 +1,4 @@
-# Versão 5.0 - Maturação Estratégica
+# Versão 6.0 - Defesa em Profundidade
 import requests
 import time
 import os
@@ -201,27 +201,22 @@ def process_command_queue():
     while True:
         item_to_process = None
         
-        # --- LÓGICA DE MATURAÇÃO ESTRATÉGICA ---
         next_item = command_queue.peek_next_item()
         if next_item:
             item_timestamp = datetime.fromisoformat(next_item['timestamp'])
             item_age = datetime.now(timezone.utc) - item_timestamp
             
             if item_age >= MINIMUM_AGE:
-                # A ordem está madura, pode ser processada.
                 item_to_process = command_queue.get_next_item()
                 print(f"\n\n--- 🕵️ Ordem {item_to_process['order_id']} madura. Autorizando processamento. ---")
             else:
-                # A ordem é muito recente. Aguarda.
                 wait_time = (MINIMUM_AGE - item_age).total_seconds()
                 print(f"   - Próxima ordem {next_item['order_id']} muito recente. Maturando por mais {int(wait_time)}s...")
         
         if not item_to_process:
-            # Fila vazia ou a próxima ordem ainda não está madura.
             time.sleep(30)
             continue
 
-        # --- INÍCIO DO PROCESSAMENTO DA ORDEM MADURA ---
         seller_id = item_to_process['seller_id']
         order_id = item_to_process['order_id']
         
@@ -275,11 +270,10 @@ def process_command_queue():
                 print(f"   - Venda antiga (anterior à inicialização) ignorada. ID: {order_id}")
                 continue
             
-            print("   - Venda nova e única. Processando com precisão financeira absoluta...")
+            print("   - Venda nova e única. Iniciando protocolo 'Defesa em Profundidade'...")
 
             total_amount = order_data.get('total_amount', 0)
             shipping_cost = 0.0
-            
             mercadolibre_total_fee = 0.0
             fee_details_list = []
 
@@ -293,16 +287,31 @@ def process_command_queue():
                         if sender.get('user_id') == seller_id:
                             shipping_cost += sender.get('cost') or 0.0
             
+            # --- PROTOCOLO "DEFESA EM PROFUNDIDADE" ---
+            # Estratégia 1: Tentar o método detalhado (preferencial)
             detailed_fees = order_data.get('fees', [])
-            for fee_component in detailed_fees:
-                fee_type = fee_component.get('type', 'desconhecida')
-                fee_amount = fee_component.get('amount') or 0.0
-                fee_cost = abs(fee_amount)
-                mercadolibre_total_fee += fee_cost
-                
-                fee_name_map = {"listing_fee": "Tarifa de Venda", "fixed_fee": "Custo Fixo", "shipping_fee": "Custo de Envio (Tarifa)", "handling_fee": "Taxa de Manuseio"}
-                fee_name = fee_name_map.get(fee_type, fee_type.replace('_', ' ').title())
-                fee_details_list.append(f"   <em>- {fee_name}: R$ {fee_cost:.2f}</em>")
+            if detailed_fees:
+                print("   - Estratégia de Custo: SUCESSO - Detalhamento via 'fees' array.")
+                for fee_component in detailed_fees:
+                    fee_type = fee_component.get('type', 'desconhecida')
+                    fee_amount = fee_component.get('amount') or 0.0
+                    fee_cost = abs(fee_amount)
+                    mercadolibre_total_fee += fee_cost
+                    
+                    fee_name_map = {"listing_fee": "Tarifa de Venda", "fixed_fee": "Custo Fixo", "shipping_fee": "Custo de Envio (Tarifa)", "handling_fee": "Taxa de Manuseio"}
+                    fee_name = fee_name_map.get(fee_type, fee_type.replace('_', ' ').title())
+                    fee_details_list.append(f"   <em>- {fee_name}: R$ {fee_cost:.2f}</em>")
+            
+            # Estratégia 2: Fallback para 'sale_fee' se o método 1 falhar
+            if mercadolibre_total_fee == 0:
+                print("   - Estratégia de Custo: FALHA no método 1. Ativando FALLBACK para 'sale_fee' em order_items.")
+                for order_item_data in order_data.get('order_items', []):
+                    sale_fee = order_item_data.get('sale_fee') or 0.0
+                    mercadolibre_total_fee += sale_fee
+                if mercadolibre_total_fee > 0:
+                    print(f"   - Estratégia de Custo: SUCESSO no FALLBACK. Tarifa agregada encontrada: R$ {mercadolibre_total_fee:.2f}")
+                    fee_details_list.append(f"   <em>- Tarifa de Venda (Agregada): R$ {mercadolibre_total_fee:.2f}</em>")
+            # --- FIM DO PROTOCOLO ---
 
             imposto_valor = total_amount * 0.0715
             valor_liquido = total_amount - mercadolibre_total_fee - shipping_cost - imposto_valor
@@ -352,7 +361,7 @@ def process_command_queue():
             error_details = traceback.format_exc()
             print(error_details)
             error_message_for_debug = (
-                f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v5.0 (FILA)</b> 🚨\n\n"
+                f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v6.0 (FILA)</b> 🚨\n\n"
                 f"Ocorreu um erro ao tentar processar uma venda da fila de comando.\n\n"
                 f"<b>ID da Venda:</b> {order_id}\n"
                 f"<b>Erro:</b>\n<pre>{str(e)}</pre>\n\n"
@@ -452,10 +461,11 @@ if __name__ == "__main__":
     scheduler_thread.start()
 
     print("======================================================================")
-    print("  Almirante Estratégico ATIVADO! (v5.0 - Maturação Estratégica)")
+    print("  Almirante Estratégico ATIVADO! (v6.0 - Defesa em Profundidade)")
     print(f"  Linha do tempo definida. Ignorando vendas anteriores a: {CUTOFF_DATE.strftime('%d/%m/%Y %H:%M:%S')}")
     print("  General de Logística inspecionando a fila a cada 30s.")
-    print("  Motor de relatórios diários e mensais engajado.")
+    print("  Protocolo de Maturação de 5 minutos ATIVO.")
+    print("  Protocolo de Dupla Checagem Financeira ATIVO.")
     print("  Servidor web (Triage) iniciando para receber notificações...")
     print("======================================================================")
     

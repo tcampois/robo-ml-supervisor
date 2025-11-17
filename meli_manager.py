@@ -1,4 +1,4 @@
-# Versão 6.0 - Defesa em Profundidade
+# Versão 6.0 - Comando Unificado
 import requests
 import time
 import os
@@ -8,6 +8,7 @@ from flask import Flask, request
 import threading
 from datetime import datetime, timezone, timedelta
 import traceback
+import pytz
 
 # --- CONFIGURAÇÕES GLOBAIS ---
 MEU_CLIENT_ID = os.environ.get('MEU_CLIENT_ID')
@@ -196,7 +197,7 @@ def handle_ml_notification():
     return "OK", 200
 
 def process_command_queue():
-    MINIMUM_AGE = timedelta(minutes=5)
+    MINIMUM_AGE = timedelta(minutes=7) # Aumentado para 7 minutos para segurança máxima
     
     while True:
         item_to_process = None
@@ -208,7 +209,7 @@ def process_command_queue():
             
             if item_age >= MINIMUM_AGE:
                 item_to_process = command_queue.get_next_item()
-                print(f"\n\n--- 🕵️ Ordem {item_to_process['order_id']} madura. Autorizando processamento. ---")
+                print(f"\n\n--- 🕵️ Ordem {item_to_process['order_id']} madura (idade: {item_age}). Autorizando processamento. ---")
             else:
                 wait_time = (MINIMUM_AGE - item_age).total_seconds()
                 print(f"   - Próxima ordem {next_item['order_id']} muito recente. Maturando por mais {int(wait_time)}s...")
@@ -270,10 +271,11 @@ def process_command_queue():
                 print(f"   - Venda antiga (anterior à inicialização) ignorada. ID: {order_id}")
                 continue
             
-            print("   - Venda nova e única. Iniciando protocolo 'Defesa em Profundidade'...")
+            print("   - Venda nova e única. Processando com precisão financeira absoluta...")
 
             total_amount = order_data.get('total_amount', 0)
             shipping_cost = 0.0
+            
             mercadolibre_total_fee = 0.0
             fee_details_list = []
 
@@ -287,31 +289,16 @@ def process_command_queue():
                         if sender.get('user_id') == seller_id:
                             shipping_cost += sender.get('cost') or 0.0
             
-            # --- PROTOCOLO "DEFESA EM PROFUNDIDADE" ---
-            # Estratégia 1: Tentar o método detalhado (preferencial)
             detailed_fees = order_data.get('fees', [])
-            if detailed_fees:
-                print("   - Estratégia de Custo: SUCESSO - Detalhamento via 'fees' array.")
-                for fee_component in detailed_fees:
-                    fee_type = fee_component.get('type', 'desconhecida')
-                    fee_amount = fee_component.get('amount') or 0.0
-                    fee_cost = abs(fee_amount)
-                    mercadolibre_total_fee += fee_cost
-                    
-                    fee_name_map = {"listing_fee": "Tarifa de Venda", "fixed_fee": "Custo Fixo", "shipping_fee": "Custo de Envio (Tarifa)", "handling_fee": "Taxa de Manuseio"}
-                    fee_name = fee_name_map.get(fee_type, fee_type.replace('_', ' ').title())
-                    fee_details_list.append(f"   <em>- {fee_name}: R$ {fee_cost:.2f}</em>")
-            
-            # Estratégia 2: Fallback para 'sale_fee' se o método 1 falhar
-            if mercadolibre_total_fee == 0:
-                print("   - Estratégia de Custo: FALHA no método 1. Ativando FALLBACK para 'sale_fee' em order_items.")
-                for order_item_data in order_data.get('order_items', []):
-                    sale_fee = order_item_data.get('sale_fee') or 0.0
-                    mercadolibre_total_fee += sale_fee
-                if mercadolibre_total_fee > 0:
-                    print(f"   - Estratégia de Custo: SUCESSO no FALLBACK. Tarifa agregada encontrada: R$ {mercadolibre_total_fee:.2f}")
-                    fee_details_list.append(f"   <em>- Tarifa de Venda (Agregada): R$ {mercadolibre_total_fee:.2f}</em>")
-            # --- FIM DO PROTOCOLO ---
+            for fee_component in detailed_fees:
+                fee_type = fee_component.get('type', 'desconhecida')
+                fee_amount = fee_component.get('amount') or 0.0
+                fee_cost = abs(fee_amount)
+                mercadolibre_total_fee += fee_cost
+                
+                fee_name_map = {"listing_fee": "Tarifa de Venda", "fixed_fee": "Custo Fixo", "shipping_fee": "Custo de Envio (Tarifa)", "handling_fee": "Taxa de Manuseio"}
+                fee_name = fee_name_map.get(fee_type, fee_type.replace('_', ' ').title())
+                fee_details_list.append(f"   <em>- {fee_name}: R$ {fee_cost:.2f}</em>")
 
             imposto_valor = total_amount * 0.0715
             valor_liquido = total_amount - mercadolibre_total_fee - shipping_cost - imposto_valor
@@ -361,7 +348,7 @@ def process_command_queue():
             error_details = traceback.format_exc()
             print(error_details)
             error_message_for_debug = (
-                f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v6.0 (FILA)</b> 🚨\n\n"
+                f"🚨 <b>ALERTA DE FALHA - ALMIRANTE v6.0 (QG-Ops)</b> 🚨\n\n"
                 f"Ocorreu um erro ao tentar processar uma venda da fila de comando.\n\n"
                 f"<b>ID da Venda:</b> {order_id}\n"
                 f"<b>Erro:</b>\n<pre>{str(e)}</pre>\n\n"
@@ -375,65 +362,78 @@ def process_command_queue():
                 print(f"!!! FALHA CATASTRÓFICA: Não foi possível enviar nem a mensagem de DEBUG. Erro: {debug_e}")
 
 def send_daily_report():
-    print("\n\n--- ⚙️  Gerando Relatório Diário... ---")
-    today = datetime.now(timezone.utc).date()
-    start_of_day = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
-    end_of_day = start_of_day + timedelta(days=1)
-    records = ledger.get_records_for_period(start_of_day, end_of_day)
+    brasilia_tz = pytz.timezone('America/Sao_Paulo')
+    now_brasilia = datetime.now(brasilia_tz)
+    today = now_brasilia.date()
+    
+    # O relatório é para o dia anterior
+    yesterday = today - timedelta(days=1)
+    
+    start_of_day_br = datetime(yesterday.year, yesterday.month, yesterday.day, tzinfo=brasilia_tz)
+    end_of_day_br = start_of_day_br + timedelta(days=1)
+    
+    # Converter para UTC para consultar o ledger
+    start_of_day_utc = start_of_day_br.astimezone(timezone.utc)
+    end_of_day_utc = end_of_day_br.astimezone(timezone.utc)
+
+    print(f"\n\n--- ⚙️  Gerando Relatório Diário para {yesterday.strftime('%d/%m/%Y')} (Brasília) ---")
+    
+    records = ledger.get_records_for_period(start_of_day_utc, end_of_day_utc)
     if not records:
-        print("--- 📪  Nenhuma venda registrada hoje. Relatório não enviado. ---")
+        print("--- 📪  Nenhuma venda registrada no período. Relatório não enviado. ---")
         return
-    total_gross = sum(r['gross'] for r in records)
-    total_net = sum(r['net'] for r in records)
-    total_units = len(records)
-    total_deductions = total_gross - total_net
-    profit_percentage = (total_deductions / total_gross * 100) if total_gross > 0 else 0
-    message = (
-        f"📊 <b>RELATÓRIO DIÁRIO DE VENDAS</b> 📊\n"
-        f"<em>Data: {today.strftime('%d/%m/%Y')}</em>\n\n"
-        f"📦 <b>Unidades Vendidas:</b> {total_units}\n\n"
-        f"💵 <b>Faturamento Bruto:</b> R$ {total_gross:.2f}\n"
-        f"✅ <b>Faturamento Líquido:</b> R$ {total_net:.2f}\n\n"
-        f"📉 <b>Total de Custos (Tarifa+Imp):</b> R$ {total_deductions:.2f}\n"
-        f"💡 <b>Percentual de Custo:</b> {profit_percentage:.2f}%"
+
+    report_data = {}
+    for seller_id in SELLER_NICKNAMES.keys():
+        report_data[seller_id] = {'gross': 0, 'net': 0, 'units': 0}
+
+    for r in records:
+        seller_id = r['seller_id']
+        if seller_id in report_data:
+            report_data[seller_id]['gross'] += r['gross']
+            report_data[seller_id]['net'] += r['net']
+            report_data[seller_id]['units'] += 1
+            
+    message = f"📊 <b>RELATÓRIO DIÁRIO DE VENDAS</b> 📊\n<em>Data: {yesterday.strftime('%d/%m/%Y')} (Horário de Brasília)</em>\n"
+
+    total_gross_all = 0
+    total_net_all = 0
+    total_units_all = 0
+
+    for seller_id, data in report_data.items():
+        if data['units'] > 0:
+            seller_emoji = SELLER_EMOJIS.get(seller_id, "🏪")
+            seller_nickname = SELLER_NICKNAMES.get(seller_id, f"ID {seller_id}")
+            message += (
+                f"\n\n<b>{seller_emoji} {seller_nickname}</b>\n"
+                f"  - 📦 Unidades: {data['units']}\n"
+                f"  - 💵 Bruto: R$ {data['gross']:.2f}\n"
+                f"  - ✅ Líquido: R$ {data['net']:.2f}"
+            )
+            total_gross_all += data['gross']
+            total_net_all += data['net']
+            total_units_all += data['units']
+    
+    total_deductions_all = total_gross_all - total_net_all
+    cost_percentage_all = (total_deductions_all / total_gross_all * 100) if total_gross_all > 0 else 0
+
+    message += (
+        f"\n\n------------------------------------\n"
+        f"<b>📈 CONSOLIDADO GERAL</b>\n"
+        f"📦 <b>Total de Unidades:</b> {total_units_all}\n"
+        f"💵 <b>Faturamento Bruto Total:</b> R$ {total_gross_all:.2f}\n"
+        f"✅ <b>Faturamento Líquido Total:</b> R$ {total_net_all:.2f}\n"
+        f"📉 <b>Total de Custos (Tarifas+Imp):</b> R$ {total_deductions_all:.2f}\n"
+        f"💡 <b>Percentual de Custo Geral:</b> {cost_percentage_all:.2f}%"
     )
+    
     telegram_notifier.send_message(message)
     print("--- ✅  Relatório Diário enviado com sucesso! ---\n")
 
-def send_monthly_report():
-    print("\n\n--- ⚙️  Verificando se é fim de mês para Relatório Mensal... ---")
-    now = datetime.now(timezone.utc)
-    is_last_day = (now + timedelta(days=1)).day == 1
-    if not is_last_day:
-        print("--- 📪  Não é o último dia do mês. Relatório mensal não gerado. ---")
-        return
-    print("--- ⚙️  É o último dia do mês! Gerando Relatório Mensal... ---")
-    start_of_month = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
-    end_of_month = (start_of_month + timedelta(days=32)).replace(day=1)
-    records = ledger.get_records_for_period(start_of_month, end_of_month)
-    if not records:
-        print("--- 📪  Nenhuma venda registrada no mês. Relatório não enviado. ---")
-        return
-    total_gross = sum(r['gross'] for r in records)
-    total_net = sum(r['net'] for r in records)
-    total_units = len(records)
-    total_deductions = total_gross - total_net
-    profit_percentage = (total_deductions / total_gross * 100) if total_gross > 0 else 0
-    message = (
-        f"🏆 <b>RELATÓRIO MENSAL CONSOLIDADO</b> 🏆\n"
-        f"<em>Mês de Referência: {now.strftime('%B de %Y')}</em>\n\n"
-        f"📦 <b>Total de Unidades Vendidas:</b> {total_units}\n\n"
-        f"💵 <b>Faturamento Bruto Total:</b> R$ {total_gross:.2f}\n"
-        f"✅ <b>Faturamento Líquido Total:</b> R$ {total_net:.2f}\n\n"
-        f"📉 <b>Total de Custos (Tarifa+Imp):</b> R$ {total_deductions:.2f}\n"
-        f"💡 <b>Percentual de Custo Total:</b> {profit_percentage:.2f}%"
-    )
-    telegram_notifier.send_message(message)
-    print("--- ✅  Relatório Mensal enviado com sucesso! ---\n")
 
 def run_scheduler():
-    schedule.every().day.at("23:59").do(send_daily_report)
-    schedule.every().day.at("23:58").do(send_monthly_report)
+    # Roda o relatório todo dia às 08:00 da manhã, horário de Brasília
+    schedule.every().day.at("08:00", "America/Sao_Paulo").do(send_daily_report)
     while True:
         schedule.run_pending()
         time.sleep(1)
@@ -461,11 +461,10 @@ if __name__ == "__main__":
     scheduler_thread.start()
 
     print("======================================================================")
-    print("  Almirante Estratégico ATIVADO! (v6.0 - Defesa em Profundidade)")
+    print("  Almirante Estratégico ATIVADO! (v6.0 - Comando Unificado)")
     print(f"  Linha do tempo definida. Ignorando vendas anteriores a: {CUTOFF_DATE.strftime('%d/%m/%Y %H:%M:%S')}")
-    print("  General de Logística inspecionando a fila a cada 30s.")
-    print("  Protocolo de Maturação de 5 minutos ATIVO.")
-    print("  Protocolo de Dupla Checagem Financeira ATIVO.")
+    print("  QG-Ops inspecionando a fila a cada 30s.")
+    print("  Motor de relatórios (Brasília Time) engajado.")
     print("  Servidor web (Triage) iniciando para receber notificações...")
     print("======================================================================")
     
